@@ -874,6 +874,9 @@ body.bounce-lock #seqZone button, body.bounce-lock #seqZone select, body.bounce-
 .sy-lcd .sy-chord:empty{ display:none; }
 .sy-lcd .sy-chord.fade{ opacity:.42; }
 .sy-lcd .sy-chord.warn{ color:#ff8f6b; }
+.sy-lcd .sy-chord{ flex-shrink:0; max-width:min(300px, 46vw); }
+.sy-lcd #syName{ min-width:0; overflow:hidden; text-overflow:ellipsis; }
+@media (max-width:620px){ .sy-lcd .sy-chord .cp{ display:none; } .sy-lcd.has-chord #syNote{ display:none; } }
 </style>
 </head>
 <body>
@@ -1374,7 +1377,7 @@ body.bounce-lock #seqZone button, body.bounce-lock #seqZone select, body.bounce-
     <dl class="keys-help">
       <dt>POLY</dt><dd>Encendido: hasta 24–32 notas a la vez (cualquier acorde, en cualquier tonalidad, con varios dedos, teclas, mouse o MIDI). Apagado = MONO: una nota a la vez, como piden los bajos y leads con glide. Si el sinte está en MONO y tocas varias teclas, la pantalla lo avisa.</dd>
       <dt>CHORD</dt><dd>La pantalla del sinte nombra el acorde que tocas (Cmaj7, Am7, D7, F#m, Gsus4, C6…). Si no tiene un nombre claro, muestra las notas. Es solo información: no cambia el sonido.</dd>
-      <dt>Voces</dt><dd>Cuando se llega al máximo, se apaga primero una nota que ya soltaste (la que menos se oye), luego las que sostiene el pedal y por último la más antigua; nunca una del acorde que estás tocando.</dd>
+      <dt>Voces</dt><dd>Cuando se llega al máximo, se apaga primero una nota que ya soltaste (la que menos se oye), luego las que sostiene el pedal y por último la más antigua; nunca una nota que acabas de tocar.</dd>
     </dl>
     <p class="help-h">REC PIANO y piano roll</p>
     <dl class="keys-help">
@@ -4143,7 +4146,7 @@ function paintSustained(){ const on=new Set(); if(SY.sustain) SY.sustained.forEa
 function liveKeyDown(e){
   const act=KeyRouter.get(e.code);
   if(act===undefined){                                  // no es pad ni nota → ¿Shift como pedal?
-    if((e.code==='ShiftLeft' || e.code==='ShiftRight') && !e.repeat && SY.pcKeys && !anyDialogOpen() && !typingIn(e.target)) kbPedal(true);
+    if((e.code==='ShiftLeft' || e.code==='ShiftRight') && !e.repeat && SY.pcKeys && !anyDialogOpen() && !typingIn(e.target) && !(e.target && (e.target.id==='roll' || e.target.id==='rollVel'))) kbPedal(true);
     return;                                             // lo demás sigue por la vía normal
   }
   if(learn.on || e.ctrlKey || e.metaKey || e.altKey || anyDialogOpen() || typingIn(e.target)) return;
@@ -4670,10 +4673,12 @@ function vqPush(ev){
   if(vq.length > 800) vq.splice(0, vq.length-800);
 }
 function songSteps(){
+  if(NoteLoop.rec && NoteLoop.growing) return Infinity;           // toma LIBRE en curso: el transporte sigue aunque REPETIR esté apagado
   const nb=seq.chainOn ? nonEmptyBanks() : [], patternSteps=nb.length ? nb.reduce((s,b)=>s+patLen(b),0) : patLen(seq.bank), noteSteps=NoteLoop.length();
   if(!noteSteps) return patternSteps;
-  const gcd=(a,b)=>b?gcd(b,a%b):a;
-  return Math.min(1024, patternSteps/gcd(patternSteps,noteSteps)*noteSteps);
+  const gcd=(a,b)=>b?gcd(b,a%b):a, lcm=patternSteps/gcd(patternSteps,noteSteps)*noteSteps;
+  // Como en el MIDI: si el mcm es enorme, el largo del loop de notas (nunca menos que él)
+  return lcm<=1024 ? lcm : Math.max(noteSteps, Math.ceil(patternSteps/noteSteps)*noteSteps);
 }
 
 /* ---------- Calibración: tocar al ritmo de unos clics ---------- */
@@ -4922,13 +4927,13 @@ const PRESETS = [
       fx:{ delay:{ on:true, div:'1/8.', fb:.35, mix:.2 } }, mix:{ rev:.32, vol:.7 } } },
   { name:'Pluck house', cat:'edm', p:{ a:{ wave:'sawtooth', uni:3, det:.25, lvl:.8 }, b:{ wave:'square', semi:12, lvl:.3 }, f:{ cut:520, res:.3, env:.62, vel:.5 },
       fe:{ a:.001, d:.18, s:0, r:.2 }, ae:{ a:.002, d:.45, s:0, r:.3 }, fx:{ delay:{ on:true, div:'1/8.', fb:.4, mix:.3 } }, mix:{ rev:.3 } } },
-  { name:'Stab house 90', cat:'edm', p:{ a:{ wave:'square', lvl:.7 }, b:{ wave:'sawtooth', semi:12, lvl:.4 }, f:{ cut:1400, res:.35, env:.45 }, fe:{ a:.001, d:.25, s:.1, r:.2 },
+  { name:'Stab house 90', cat:'edm', p:{ voices:32, a:{ wave:'square', lvl:.7 }, b:{ wave:'sawtooth', semi:12, lvl:.4 }, f:{ cut:1400, res:.35, env:.45 }, fe:{ a:.001, d:.25, s:.1, r:.2 },
       ae:{ a:.002, d:.35, s:.15, r:.2 }, chord:'min7', fx:{ delay:{ on:true, div:'1/8', fb:.3, mix:.22 }, chorus:{ on:true, mix:.3 } }, mix:{ rev:.35, vol:.6 } } },
   { name:'Synthwave arp', cat:'edm', p:{ a:{ wave:'sawtooth', uni:3, det:.2, lvl:.8 }, b:{ wave:'square', semi:-12, lvl:.3 }, f:{ cut:2400, res:.35, env:.4 }, fe:{ a:.001, d:.25, s:.2, r:.3 },
       ae:{ a:.002, d:.3, s:.5, r:.3 }, arp:{ on:true, mode:'updown', div:'1/16', oct:2, gate:.55 }, fx:{ delay:{ on:true, div:'1/8.', fb:.45, mix:.28 }, chorus:{ on:true, mix:.35 } }, mix:{ rev:.35 } } },
   { name:'Wobble', cat:'edm', p:{ mode:'mono', a:{ wave:'sawtooth', lvl:.8 }, b:{ wave:'square', semi:-12, lvl:.55 }, sub:.5, f:{ slope:24, cut:260, res:.55, env:0, key:.1 },
       ae:{ a:.003, d:.5, s:.95, r:.12 }, lfo:{ wave:'sine', sync:true, div:'1/8', dest:'filter', depth:.85 }, fx:{ drive:{ on:true, amt:.55, tone:6000, lvl:.7 } }, mix:{ rev:.05 } } },
-  { name:'Future bass', cat:'edm', p:{ chord:'sev', a:{ wave:'sawtooth', uni:7, det:.45, lvl:.8 }, b:{ wave:'square', semi:12, lvl:.15 }, f:{ cut:5000, res:.1, env:.2, key:.2 }, ae:{ a:.01, d:1, s:.8, r:.4 }, fx:{ pump:{ on:true, depth:.7, rel:.6, src:'beat' }, chorus:{ on:true, mix:.3 } }, mix:{ rev:.35, vol:.65 } } },
+  { name:'Future bass', cat:'edm', p:{ voices:32, chord:'sev', a:{ wave:'sawtooth', uni:7, det:.45, lvl:.8 }, b:{ wave:'square', semi:12, lvl:.15 }, f:{ cut:5000, res:.1, env:.2, key:.2 }, ae:{ a:.01, d:1, s:.8, r:.4 }, fx:{ pump:{ on:true, depth:.7, rel:.6, src:'beat' }, chorus:{ on:true, mix:.3 } }, mix:{ rev:.35, vol:.65 } } },
   { name:'Trance gate', cat:'edm', p:{ a:{ wave:'sawtooth', uni:7, det:.4, lvl:.8 }, f:{ cut:4500, res:.15, env:.1 }, ae:{ a:.01, d:.5, s:1, r:.3 }, lfo:{ wave:'square', sync:true, div:'1/16', dest:'amp', depth:.95 }, fx:{ delay:{ on:true, div:'1/8.', fb:.35, mix:.2 } }, mix:{ rev:.35, vol:.9 } } },
   { name:'Techno stab', cat:'edm', p:{ a:{ wave:'sawtooth', uni:2, det:.1, lvl:.8 }, b:{ wave:'square', semi:7, lvl:.4 }, f:{ cut:700, res:.5, env:.55 }, fe:{ a:.001, d:.2, s:0, r:.2 }, ae:{ a:.002, d:.3, s:0, r:.3 }, fx:{ drive:{ on:true, amt:.3, tone:6000, lvl:.8 }, delay:{ on:true, div:'1/8', fb:.4, mix:.25 } }, mix:{ rev:.3, vol:.7 } } },
   { name:'Init', cat:'edm', p:{} },
@@ -5479,7 +5484,8 @@ const ChordName = (()=>{
   const LIB=[];
   T.forEach(([suf, iv, om], pri)=>{
     const full=iv.slice(), opts=[{ set:full, miss:0 }];
-    if(om && full.length>=4){
+    // Solo los acordes con séptima admiten notas omitidas (C7 sin quinta); un «C6 sin quinta» sería Am/C
+    if(om && full.length>=4 && (full.includes(10) || full.includes(11))){
       const subsets=[[]]; om.forEach(o=>{ const n=subsets.length; for(let k=0;k<n;k++) subsets.push(subsets[k].concat(o)); });
       subsets.slice(1).forEach(rm=>{ const s=full.filter(x=>!rm.includes(x)); if(s.length>=3) opts.push({ set:s, miss:rm.length }); });
     }
@@ -5513,7 +5519,7 @@ const ChordName = (()=>{
     for(const r of pcs){
       const key=pcs.map(p=>(p-r+12)%12).sort((a,b)=>a-b).join(','), list=BY.get(key); if(!list) continue;
       for(const e of list){
-        const s=(r===bass?100:0) + (e.miss?0:30) - e.miss*12 - e.pri*1.5;
+        const s=-e.miss*200 + (r===bass?100:0) - e.pri*1.5;   // primero lo completo, luego la raíz en el bajo, luego lo común
         if(!best || s>best.s) best={ s, r, e };
       }
     }
@@ -5532,18 +5538,30 @@ const ChordName = (()=>{
 const ChordView = {
   dirty:false, last:'', clearAt:0, el:null,
   mark(){ this.dirty=true; },
-  sounding(){ const ns=[]; SY.held.forEach(e=>{ for(let k=0;k<e.outs.length;k++) ns.push(e.outs[k]); });
-    for(let i=0;i<SY.sustained.length;i++){ const o=SY.sustained[i].outs; for(let k=0;k<o.length;k++) ns.push(o[k]); } return ns; },
+  // Solo cuentan las notas que de verdad siguen sonando (no las robadas, apagadas o que ya se extinguieron)
+  sounding(){
+    const ns=[], now=ctx ? ctx.currentTime : 0, arp=SY.patch.arp.on;
+    const alive=v=>v && !v.dead && !v.killed && v.endAt>now && (v.ampM.rel==null || v.ampM.rel>now) && (now<v.t0+.08 || envVal(v.ampM, now)>.004);   // recién programada = suena
+    const add=e=>{ if(arp && !e.voices.length){ for(const n of e.outs) ns.push(n); return; }
+      for(let k=0;k<e.outs.length;k++){ const v=e.voices[k] || (k===0 ? e.voices[0] : null); if(alive(v)) ns.push(e.outs[k]); } };
+    SY.held.forEach(add); for(let i=0;i<SY.sustained.length;i++) add(SY.sustained[i]);
+    return ns; },
   paint(){
     this.dirty=false; const el=this.el || (this.el=document.getElementById('syChord')); if(!el) return;
     const P=SY.patch, ns=this.sounding(); let txt='', warn=false;
-    if(P.mode==='mono'){ if(SY.held.size>1){ txt='MONO · UNA NOTA'; warn=true; } }
-    else if(ns.length>=2){ const r=ChordName.name(ns); txt = r ? (r.name ? 'CHORD: '+r.name : r.notes) : '';
+    if(P.mode==='mono'){ // aviso solo ante un acorde claro: 3+ teclas, o 2 pulsadas casi a la vez (un legato no avisa)
+      let n=0, t0=Infinity, t1=-Infinity; SY.held.forEach(e=>{ n++; t0=Math.min(t0,e.t); t1=Math.max(t1,e.t); });
+      if(n>=3 || (n===2 && t1-t0<.045)){ txt='MONO · UNA NOTA'; warn=true; } }
+    else if(ns.length>=2){ const r=ChordName.name(ns);
+      // Sin nombre claro: las notas (como mucho 7, para que la pantalla no se desborde)
+      txt = r ? (r.name ? 'CHORD: '+r.name : (()=>{ const l=r.notes.split(' '); return l.length>7 ? l.slice(0,7).join(' ')+' …' : r.notes; })()) : '';
       if(txt && P.chord!=='off') txt+=' · ACORDE AUTO'; }   // avisa que cada tecla está sumando su propio acorde
-    if(txt){ this.clearAt=0; if(txt!==this.last){ this.last=txt; el.textContent=txt; } el.classList.remove('fade'); el.classList.toggle('warn', warn); }
+    if(txt){ this.clearAt=0; if(txt!==this.last){ this.last=txt; const k=txt.indexOf('CHORD: ');
+        if(k===0){ el.textContent=''; const b=document.createElement('span'); b.className='cp'; b.textContent='CHORD: '; el.appendChild(b); el.appendChild(document.createTextNode(txt.slice(7))); } else el.textContent=txt; }
+      el.classList.remove('fade'); el.classList.toggle('warn', warn); el.parentNode.classList.add('has-chord'); }
     else if(this.last && !this.clearAt){ this.clearAt=performance.now()+1600; el.classList.add('fade'); }   // el último acorde queda un momento, atenuado
   },
-  tick(now){ if(this.clearAt && now>=this.clearAt){ this.clearAt=0; this.last=''; const el=this.el; if(el){ el.textContent=''; el.classList.remove('fade','warn'); } } },
+  tick(now){ if(this.clearAt && now>=this.clearAt){ this.clearAt=0; this.last=''; const el=this.el; if(el){ el.textContent=''; el.classList.remove('fade','warn'); el.parentNode.classList.remove('has-chord'); } } },
 };
 const SynthIn = {
   on(key, note, vel, pt){
@@ -5552,7 +5570,7 @@ const SynthIn = {
     const P=SY.patch, T=liveTiming(pt), outs=transformNote(note);
     if(!outs.length) return;
     // Volver a tocar una nota sostenida con el pedal la reemplaza
-    if(SY.sustained.length) SY.sustained=SY.sustained.filter(x=>{ if(x.note===note){ releaseEntry(x, T.t); return false; } return true; });
+    if(SY.sustained.length) SY.sustained=SY.sustained.filter(x=>{ if(x.note===note){ releaseEntry(x, T.t); NoteLoop.recOff(x, pt); return false; } return true; });
     const e={ key, note, outs, vel, t:T.t, shift:T.shift, T, voices:[] };
     SY.held.set(key, e);
     // 🔊 1) Sonido
@@ -5573,9 +5591,9 @@ const SynthIn = {
       if(SY.patch.arp.on){ Arp.remove(e); if(e.voices.length){ e.voices.forEach(v=>releaseVoice(v,tOff)); e.voices=[]; } }
       else if(SY.sustain){ if(SY.patch.mode==='mono'){ const k=SY.mono.stack.indexOf(e); if(k>=0) SY.mono.stack.splice(k,1); }
         for(let k=0;k<e.voices.length;k++) e.voices[k].sus=true;   // el robo de voces las prefiere antes que las teclas pulsadas
-        SY.sustained.push(e); }
+        SY.sustained.push(e); }                                    // la duración grabada se cierra cuando el pedal la suelta
       else releaseEntry(e, tOff);
-      NoteLoop.recOff(e, pt);
+      if(!SY.sustain || SY.patch.arp.on) NoteLoop.recOff(e, pt);
     }
     Piano.held(e.note, false); ChordView.mark();
   },
@@ -5595,12 +5613,13 @@ function releaseEntry(e, t){
 }
 function setSustain(on){
   on=!!on; if(SY.sustain===on) return; SY.sustain=on; toggleBtn($('#susBtn'), on);
-  if(!on && ctx){ const t=ctx.currentTime, list=SY.sustained; SY.sustained=[]; list.forEach(e=>{ if(SY.held.get(e.key)!==e) releaseEntry(e, Math.max(t, e.t+.02)); }); }
+  if(!on && ctx){ const t=ctx.currentTime, pt=performance.now(), list=SY.sustained; SY.sustained=[];
+    list.forEach(e=>{ if(SY.held.get(e.key)!==e){ releaseEntry(e, Math.max(t, e.t+.02)); NoteLoop.recOff(e, pt); } }); }
   paintSustained(); ChordView.mark();
 }
 function wantSus(){ return !!(SY.pedal || SY.susBtn || SY.kbPedal); }   // pedal MIDI, botón SUSTAIN o Shift
 function synthPanic(){
-  SynthIn.releaseAll(); SY.sustained=[]; SY.mono.stack=[]; Arp.clear(); synthAllOff(true);
+  SynthIn.releaseAll(); SY.sustained.forEach(e=>NoteLoop.recOff(e, performance.now())); SY.sustained=[]; SY.mono.stack=[]; Arp.clear(); synthAllOff(true);
   SY.susBtn=false; SY.pedal=false; SY.kbPedal=false; setSustain(false); Piano.clearPlay(); Piano.ptr.clear(); flashMsg('Sintetizador en silencio');
 }
 
@@ -5677,7 +5696,7 @@ const Arp = {
 const NL_BARS=[1,2,4,8,16,32], NL_MAX_BARS=1024, NL_MAX_NOTES=16000, NL_GRIDS=[0,4,2,1,.5,.25];
 const NoteLoop = {
   bars:2, free:false, notes:[], rec:false, over:false, grid:1, str:100, qOn:false,
-  origin:0, growing:false, pendingClear:false, lastAbs:0, idx:null,
+  origin:0, growing:false, started:false, pendingClear:false, lastAbs:0, idx:null, ciBuf:[], fullWarned:false,
   skip:new Set(), low:48, get rows(){ return narrowMQ.matches ? 14 : 24; },
   steps(){ return this.bars*16; },
   length(){ const L=this.steps(); return this.notes.some(n=>n.p<L) ? L : 0; },
@@ -5690,7 +5709,7 @@ const NoteLoop = {
     let d=null; try{ d=JSON.parse(data); }catch(e){ return; }
     if(Array.isArray(d)) this.notes=d;                                   // deshacer guardado antes de REC PIANO
     else if(d && Array.isArray(d.notes)){ this.notes=d.notes; if(Number.isFinite(d.bars)) this.bars=clamp(Math.round(d.bars),1,NL_MAX_BARS); this.free=!!d.free; }
-    this.notes.forEach(o=>{ if(o.p0==null) o.p0=o.p; if(o.l0==null) o.l0=o.l; });
+    this.notes.forEach(o=>{ if(o.p0==null) o.p0=o.p; if(o.l0==null) o.l0=o.l; }); this.requant();
     this.skip.clear(); this.growing=false; this.pendingClear=false; Roll.sel.clear(); Roll.drag=null; Roll.fit(); Roll.changed();
   },
   posAt(h){ // posición (en semicorcheas, absoluta) del instante escuchado h
@@ -5703,29 +5722,36 @@ const NoteLoop = {
   // Posición dentro del loop redondeada a diezmilésimas (nunca igual al largo del loop)
   pos3(p){ const L=this.steps(); let q=+this.wrap(p).toFixed(4); if(q>=L) q=0; return q; },
   rel(abs){ return abs-this.origin; },
-  has(n, absPos){ const p=this.pos3(this.rel(absPos)); return this.notes.some(o=>o.n===n && Math.abs(o.p-p)<1e-3); },
+  has(n, absPos){ if(this.growing) return false;   // en la toma LIBRE el loop no repite nada: el arpegio siempre suena
+    const p=this.pos3(this.rel(absPos)); return this.notes.some(o=>o.n===n && Math.abs(o.p-p)<1e-3); },
   // Cuantización NO destructiva: la posición que suena sale de la original (rejilla + fuerza 0–100 %)
   qPos(p0){ const g=this.grid; if(!this.qOn || !g) return p0;
-    let q=p0+(Math.round(p0/g)*g-p0)*this.str/100; const L=this.steps(); if(q>=L-1e-6) q-=L; return Math.max(0, +q.toFixed(4)); },
+    let q=p0+(Math.round(p0/g)*g-p0)*this.str/100; const L=this.steps(); if(!this.growing && q>=L-1e-6) q-=L; return Math.max(0, +q.toFixed(4)); },
   requantOne(o){ if(o.p0==null) o.p0=o.p; if(o.l0==null) o.l0=o.l; o.p=this.qPos(o.p0); o.l=o.l0; },
   requant(){ for(const o of this.notes) this.requantOne(o); this.idx=null; },
   // Al grabar encima, la misma nota en (casi) el mismo lugar se reemplaza: no se apila ni suena dos veces
   put(p, l, n, v, src){
     let o=this.notes.find(x=>x.n===n && Math.abs(x.p0-p)<.12);
     if(o){ o.l0=o.l=l; o.v=v; o.s=src||o.s; }
-    else { if(this.notes.length>=NL_MAX_NOTES) return null; o={ p:this.qPos(p), l, n, v, p0:p, l0:l, s:src||'d' }; this.notes.push(o); }
+    else { if(this.notes.length>=NL_MAX_NOTES){ if(!this.fullWarned){ this.fullWarned=true; flashMsg('El loop llegó a 16.000 notas: lo nuevo ya no se graba'); } return null; } o={ p:this.qPos(p), l, n, v, p0:p, l0:l, s:src||'d' }; this.notes.push(o); }
     this.idx=null; return o;
   },
   markSkip(o){ const L=this.steps(), front=this.wrap(this.rel(seq.abs)), ahead=((o.p-front)%L+L)%L; if(ahead<L/2) this.skip.add(o); },
   follow(n){ if(n<this.low || n>this.low+this.rows-1){ this.low=clamp(n-Math.floor(this.rows/2), 0, 128-this.rows); } },
   srcOf(key){ const c=key[0]; if(c==='k') return 'k'; if(c==='m'){ const ch=parseInt(key.slice(1),10); return 'm'+((ch|0)+1); } return 'p'; },
   recOn(e){
-    if(!this.rec || !seq.playing) return;
+    if(!this.rec) return;
+    if(!seq.playing){ if(CI.active){ e.ciPending=true; this.ciBuf.push(e); } return; }   // cuenta previa: se graba al empezar
     const raw=this.posAt(e.T.h!=null ? e.T.h : heardWhen(e.T.pt));   // marca de tiempo REAL de la tecla
-    const at = e.T.grid ? e.T.grid.abs : raw;                           // si el sonido se cuantizó en vivo, se graba donde sonó
+    this.recAt(e, raw, e.T.grid ? e.T.grid.abs : raw);                // si el sonido se cuantizó en vivo, se graba donde sonó
+  },
+  recAt(e, raw, at){
     if(this.pendingClear){ this.pendingClear=false; this.notes=[]; this.skip.clear(); Roll.sel.clear(); if(this.growing) this.bars=1; }
     let p0;
-    if(this.growing){ p0=Math.max(0, at-this.origin); const need=Math.min(NL_MAX_BARS, Math.floor(p0/16)+1); if(need>this.bars) this.bars=need; }
+    if(this.growing){
+      // La toma LIBRE empieza en el compás de la PRIMERA nota (una nota apenas adelantada al 1 cuenta como el 1)
+      if(!this.started){ this.started=true; this.origin=Math.floor((at+1)/16)*16; }
+      p0=Math.max(0, at-this.origin); const need=Math.min(NL_MAX_BARS, Math.floor(p0/16)+1); if(need>this.bars) this.bars=need; }
     else p0=this.pos3(this.rel(at));
     e.recRaw=raw; e.recP0=p0;
     const src=this.srcOf(e.key), vel=+clamp(e.vel,.05,1).toFixed(2);
@@ -5734,7 +5760,8 @@ const NoteLoop = {
     this.follow(e.outs[0]); Roll.changed();
   },
   recOff(e, pt){
-    if(!e.recNotes) return;
+    if(e.ciPending && !e.recNotes){ e.ciOff=pt; return; }          // soltada durante la cuenta previa: se cierra al empezar
+    if(!e.recNotes || e.recDone) return; e.recDone=true;
     const L=this.steps(); let len=this.posAt(heardWhen(pt))-e.recRaw;
     if(!this.growing && len<0) len+=L;
     len=Math.max(.05, this.growing ? len : Math.min(len, L));
@@ -5745,10 +5772,22 @@ const NoteLoop = {
   recArp(n, vel, absPos, lenSteps){
     if(!this.rec || !seq.playing) return;
     if(this.pendingClear){ this.pendingClear=false; this.notes=[]; this.skip.clear(); Roll.sel.clear(); if(this.growing) this.bars=1; }
+    if(this.growing && !this.started){ this.started=true; this.origin=Math.floor((absPos+1)/16)*16; }
     const p0=this.growing ? Math.max(0, absPos-this.origin) : this.pos3(this.rel(absPos));
     if(this.growing){ const need=Math.min(NL_MAX_BARS, Math.floor(p0/16)+1); if(need>this.bars) this.bars=need; }
     this.put(+p0.toFixed(4), +clamp(lenSteps,.1,this.steps()).toFixed(3), n, +vel.toFixed(2), 'a');
     this.follow(n); Roll.changed();
+  },
+  // Al arrancar después de la cuenta PRE: lo que se tocó durante la cuenta entra con su tiempo relativo al 1
+  // (en un loop fijo, una anacrusa va al final del loop; en LIBRE, al 1)
+  flushCountIn(t0){
+    const list=this.ciBuf; this.ciBuf=[]; if(!this.rec || !list.length) return;
+    const sd=stepDur();
+    for(const e of list){ e.ciPending=false;
+      const h=e.T.h!=null ? e.T.h : heardWhen(e.T.pt), rel=(h-t0)/sd;
+      this.recAt(e, rel, this.growing ? Math.max(0, rel) : rel);
+      if(e.ciOff!=null){ const len=Math.max(.05, (heardWhen(e.ciOff)-h)/sd); e.recNotes.forEach(o=>{ o.l0=o.l=+len.toFixed(4); }); e.recDone=true; } }
+    Roll.changed();
   },
   // Índice por semicorchea (se rehace solo cuando cambian las notas): el scheduler no recorre miles de notas por paso
   index(){
@@ -5775,7 +5814,7 @@ const NoteLoop = {
   },
   setGrid(g){ if(!NL_GRIDS.includes(g)) return; this.grid=g; if(this.qOn){ this.requant(); this.skip.clear(); } Roll.changed(); },
   setStr(v){ this.str=clamp(Math.round(v/5)*5,0,100); if(this.qOn){ this.requant(); this.skip.clear(); } Roll.changed(); },
-  clear(){ if(!this.notes.length) return; this.snap(); this.notes=[]; this.skip.clear(); Roll.sel.clear(); this.idx=null; Roll.changed(); flashMsg('Loop de notas borrado'); },
+  clear(){ if(!this.notes.length) return; this.snap(); this.notes=[]; this.fullWarned=false; this.skip.clear(); Roll.sel.clear(); this.idx=null; Roll.changed(); flashMsg('Loop de notas borrado'); },
   setRec(on){
     if(on===this.rec) return;
     this.rec=on;
@@ -5784,8 +5823,8 @@ const NoteLoop = {
       // OVERDUB apagado: la grabación nueva reemplaza el loop, pero recién con la primera nota (encender y apagar REC no borra nada)
       this.pendingClear = !this.over && this.notes.length>0;
       if(this.free && (this.pendingClear || !this.notes.length)){
-        this.growing=true; if(!this.notes.length) this.bars=1;
-        this.origin = seq.playing ? Math.floor(this.posAt(audibleNow())/16)*16 : 0;   // empieza en el compás que suena
+        this.growing=true; this.started=false; if(!this.notes.length) this.bars=1;
+        this.origin = seq.playing ? Math.floor(this.posAt(audibleNow())/16)*16 : 0;   // provisional: la toma empieza en el compás de la primera nota
       }
       if(!seq.playing && !CI.active) startPlay();
       flashMsg(seq.pre && !seq.playing ? 'Cuenta previa… luego graba lo que toques en el piano'
@@ -5793,26 +5832,35 @@ const NoteLoop = {
         : this.pendingClear ? 'REC PIANO: la primera nota reemplaza el loop (OVERDUB suma capas)' : 'REC PIANO: toca, se graba cada nota con su tiempo real');
     } else {
       if(this.growing) this.finishFree();
-      this.pendingClear=false;
+      this.pendingClear=false; this.ciBuf=[];
       if(CI.active && !seq.rec) cancelCountIn();
     }
     updLoopUI();
   },
   // Cierra una toma LIBRE: el largo es lo tocado redondeado al compás (y la siguiente vuelta arranca en ese compás)
-  finishFree(){
-    this.growing=false;
+  finishFree(pos){
+    this.growing=false; this.started=false;
     if(this.pendingClear || !this.notes.length){ this.pendingClear=false; Roll.changed(false); return; }   // no se tocó nada: queda todo como estaba
-    const pos = seq.playing ? this.posAt(audibleNow()) : this.lastAbs-1;
+    if(pos==null) pos = seq.playing ? this.posAt(audibleNow()) : this.lastAbs-1;
     let end=0; for(const o of this.notes) end=Math.max(end, o.p0+o.l0);
-    this.bars=clamp(Math.ceil(Math.max(end, pos-this.origin)/16-1e-6), 1, NL_MAX_BARS);
-    this.idx=null; this.skip.clear(); Roll.fit(); Roll.changed();
+    // Apagar REC hasta un tiempo después de la barra no agrega un compás vacío
+    this.bars=clamp(Math.ceil(Math.max(end, pos-this.origin-4)/16-1e-6), 1, NL_MAX_BARS);
+    this.requant(); this.skip.clear(); Roll.fit(); Roll.changed();
     flashMsg(`Loop LIBRE de ${this.bars} ${this.bars===1?'compás':'compases'}`);
   },
-  transportStopped(){ if(this.growing) this.finishFree(); this.origin=0; },
+  // STOP: las notas que siguen pulsadas se cierran en el instante del STOP, la toma LIBRE se cierra y REC se apaga
+  transportStopped(){
+    const pos=this.posAt(audibleNow()), L=this.steps();
+    if(this.rec){ const close=e=>{ if(!e.recNotes || e.recDone) return; e.recDone=true; let len=pos-e.recRaw; if(!this.growing && len<0) len+=L;
+        len=Math.max(.05, this.growing ? len : Math.min(len, L)); e.recNotes.forEach(o=>{ o.l0=o.l=+len.toFixed(4); }); };
+      SY.held.forEach(close); SY.sustained.forEach(close); }
+    if(this.growing) this.finishFree(pos);
+    this.ciBuf=[]; this.origin=0; if(this.rec){ this.rec=false; this.pendingClear=false; } updLoopUI();
+  },
   setBars(b){
     if(b==='free'){ this.free=true; if(!this.notes.length) this.bars=1; }   // LIBRE: el largo lo decide la próxima grabación
     else { b=+b; if(!NL_BARS.includes(b)) return; this.free=false; this.growing=false; this.bars=b; }
-    this.skip.clear(); this.idx=null; Roll.fit(); Roll.changed(); updLoopUI();
+    this.requant(); this.skip.clear(); Roll.fit(); Roll.changed(); updLoopUI();
   },
   snapshot(){
     return { bars:this.bars, free:this.free, over:this.over, grid:this.grid, str:this.str, q:this.qOn, low:this.low,
@@ -5832,7 +5880,7 @@ const NoteLoop = {
         const p=clamp(o.p,0,M-.01), l=clamp(o.l,.05,M);
         return { p, l, n:clamp(Math.round(o.n),0,127), v:clamp(o.v,.05,1),
           p0:Number.isFinite(o.p0) ? clamp(o.p0,0,M-.01) : p, l0:Number.isFinite(o.l0) ? clamp(o.l0,.05,M) : l, s:typeof o.s==='string' ? o.s.slice(0,4) : 'd' }; }); }
-    this.requant(); this.skip.clear(); this.growing=false; this.pendingClear=false; this.origin=0;
+    this.requant(); this.skip.clear(); this.growing=false; this.started=false; this.pendingClear=false; this.origin=0; this.fullWarned=false;
     Roll.sel.clear(); Roll.drag=null; Roll.fit(); Roll.changed(false); updLoopUI();
   },
 };
@@ -5890,12 +5938,13 @@ function updLoopUI(){
 // Selección múltiple: un acorde se mueve, alarga o borra completo. Arriba, el nombre de cada acorde.
 const Roll = {
   cv:null, vc:null, st:document.createElement('canvas'), dirty:true, uiDirty:false, drag:null, vdrag:null, lastPh:null, font:'',
-  kc:{ p:0, n:60, on:false }, sel:new Set(), tool:'draw', x0:0, span:0, follow:true,
+  kc:{ p:0, n:60, on:false }, sel:new Set(), tool:'draw', x0:0, span:0, follow:true, lastL:0, cost:0, drawnAt:0,
   init(){
     const cv=this.cv=$('#roll'), vc=this.vc=$('#rollVel'); this.font=getComputedStyle(document.body).fontFamily;
     cv.addEventListener('pointerdown', e=>this.down(e));
-    cv.addEventListener('pointermove', e=>this.move(e));
-    cv.addEventListener('pointerup', ()=>this.up()); cv.addEventListener('pointercancel', ()=>{ this.drag=null; this.dirty=true; });
+    cv.addEventListener('pointermove', e=>{ if(this.drag && this.drag.pid!==e.pointerId) return; this.move(e); });
+    cv.addEventListener('pointerup', e=>{ if(this.drag && this.drag.pid!==e.pointerId) return; this.up(); });
+    cv.addEventListener('pointercancel', e=>{ if(this.drag && this.drag.pid!==e.pointerId) return; this.drag=null; this.dirty=true; });
     cv.addEventListener('dblclick', e=>{ const q=this.at(e), hit=q.x>=q.G.kw && q.y>=q.G.top && this.noteAt(q); if(hit){ NoteLoop.snap(); this.remove([hit]); } });
     cv.addEventListener('contextmenu', e=>{ e.preventDefault(); const q=this.at(e), hit=q.x>=q.G.kw && q.y>=q.G.top && this.noteAt(q); if(!hit) return;
       NoteLoop.snap(); this.remove(this.sel.has(hit) ? [...this.sel] : [hit]); });
@@ -5909,20 +5958,22 @@ const Roll = {
     cv.addEventListener('keydown', e=>this.key(e));
     cv.addEventListener('focus', ()=>{ this.dirty=true; }); cv.addEventListener('blur', ()=>{ this.dirty=true; });
     vc.addEventListener('pointerdown', e=>this.vDown(e)); vc.addEventListener('pointermove', e=>this.vMove(e));
-    const vEnd=()=>{ this.vdrag=null; }; vc.addEventListener('pointerup', vEnd); vc.addEventListener('pointercancel', vEnd);
+    const vEnd=e=>{ if(this.vdrag && this.vdrag.pid===e.pointerId) this.vdrag=null; }; vc.addEventListener('pointerup', vEnd); vc.addEventListener('pointercancel', vEnd);
     cvHooks.set(vc, ()=>{ this.dirty=true; });
     this.fit();
   },
   grid(){ return NoteLoop.grid>0 ? NoteLoop.grid : 1; },          // rejilla de edición (FREE edita en 1/16; Alt = libre)
-  fit(){ const L=NoteLoop.steps(); if(L<=64) this.span=L; else if(!this.span || this.span>L || this.span<16) this.span=64; this.setX(this.x0); this.dirty=true; },
-  setX(x){ const L=NoteLoop.steps(), sp=Math.min(this.span||L, L); const v=clamp(Math.round(x/4)*4, 0, Math.max(0, L-sp)); if(v!==this.x0){ this.x0=v; this.dirty=true; } },
+  fit(){ const L=NoteLoop.steps(); if(L<=64) this.span=L; else if(!this.span || this.span>L || this.span<16 || this.span===this.lastL) this.span=64; this.lastL=L; this.setX(this.x0); this.dirty=true; },
+  // Largo navegable: durante una toma LIBRE incluye el compás que suena aunque todavía no tenga notas
+  vLen(){ const L=NoteLoop.steps(); return NoteLoop.growing && seq.playing && curAbs>=0 ? Math.max(L, (Math.floor((curAbs-NoteLoop.origin)/16)+1)*16) : L; },
+  setX(x){ const L=this.vLen(), sp=Math.min(this.span||L, L); const v=clamp(Math.round(x/4)*4, 0, Math.max(0, L-sp)); if(v!==this.x0){ this.x0=v; this.dirty=true; } },
   zoom(d){ const L=NoteLoop.steps(); let s=this.span||L; s = d>0 ? Math.max(16, s/2) : Math.min(L, s*2); if(s!==this.span){ const c=this.x0+(this.span||L)/2; this.span=s; this.setX(c-s/2); this.dirty=true; } },
   page(d){ const L=NoteLoop.steps(), sp=Math.min(this.span||L, L); this.follow=false; this.setX(this.x0+d*sp); },
   setTool(t){ this.tool=t; updLoopUI(); flashMsg(t==='select' ? 'Seleccionar: arrastra un recuadro para elegir varias notas' : 'Dibujar: clic en un espacio vacío crea una nota'); },
   scroll(d){ const v=clamp(NoteLoop.low+d, 0, 128-NoteLoop.rows); if(v!==NoteLoop.low){ NoteLoop.low=v; this.dirty=true; markDirty(); } },
   changed(save=true){ this.dirty=true; this.uiDirty=true; NoteLoop.idx=null; if(save) markDirty(); },
   geo(){ const { w, h, dpr }=fitCanvas(this.cv), kw=Math.round(42*dpr), L=NoteLoop.steps(), rows=NoteLoop.rows, top=Math.round(15*dpr), span=Math.max(1, Math.min(this.span||L, L));
-    return { w, h, dpr, kw, L, rows, top, span, x0:Math.min(this.x0, Math.max(0,L-span)), cw:(w-kw)/span, rh:(h-top)/rows, hi:NoteLoop.low+rows-1 }; },
+    return { w, h, dpr, kw, L, rows, top, span, x0:Math.min(this.x0, Math.max(0,this.vLen()-span)), cw:(w-kw)/span, rh:(h-top)/rows, hi:NoteLoop.low+rows-1 }; },
   at(e){ const r=this.cv.getBoundingClientRect(), G=this.geo(), x=(e.clientX-r.left)*G.w/r.width, y=(e.clientY-r.top)*G.h/r.height;
     return { G, x, y, p:G.x0+(x-G.kw)/G.cw, n:G.hi-Math.floor((y-G.top)/G.rh) }; },
   minLen(G){ return Math.max(.35, 6*G.dpr/G.cw); },
@@ -5930,7 +5981,7 @@ const Roll = {
   // Borde derecho para estirar: proporcional a la nota (en una nota corta casi todo sirve para moverla)
   onEdge(q, hit){ const G=q.G, w=Math.min(hit.l, G.L-hit.p)*G.cw, right=G.kw+(hit.p-G.x0)*G.cw+w, d=right-q.x; return d>=0 && d<Math.min((isTouchOnly?16:8)*G.dpr, w*.35); },
   down(e){
-    if(e.button>0) return; e.preventDefault(); this.cv.focus({ preventScroll:true }); ensureAudio();
+    if(e.button>0 || this.drag) return; e.preventDefault(); this.cv.focus({ preventScroll:true }); ensureAudio();
     const q=this.at(e); if(q.y<q.G.top || q.n<0 || q.n>127) return;
     if(q.x<q.G.kw){ audition(q.n); return; }
     if(q.p<0 || q.p>=q.G.L) return;
@@ -5940,14 +5991,14 @@ const Roll = {
       if(add && this.sel.has(hit)){ this.sel.delete(hit); this.dirty=true; this.uiDirty=true; return; }
       if(add) this.sel.add(hit); else if(!this.sel.has(hit)){ this.sel.clear(); this.sel.add(hit); }
       const group=[...this.sel].map(o=>({ o, p0:o.p0, l0:o.l0, n:o.n }));
-      this.drag={ mode:this.onEdge(q,hit) ? 'size' : 'move', hit, p0:q.p, n0:q.n, group, moved:false, snapped:false, collapse:!add, lastDn:0 };
+      this.drag={ pid:e.pointerId, mode:this.onEdge(q,hit) ? 'size' : 'move', hit, p0:q.p, n0:q.n, group, moved:false, snapped:false, collapse:!add, lastDn:0 };
       audition(hit.n); this.dirty=true; this.uiDirty=true; return;
     }
-    if(this.tool==='select' || add){ if(!add) this.sel.clear(); this.drag={ mode:'box', x0:q.x, y0:q.y, x1:q.x, y1:q.y, base:new Set(this.sel) }; this.dirty=true; this.uiDirty=true; return; }
+    if(this.tool==='select' || add){ if(!add) this.sel.clear(); this.drag={ pid:e.pointerId, mode:'box', x0:q.x, y0:q.y, x1:q.x, y1:q.y, base:new Set(this.sel) }; this.dirty=true; this.uiDirty=true; return; }
     // Dibujar: nota nueva en la rejilla; se alarga arrastrando
     NoteLoop.snap(); const g=this.grid(), p=clamp(Math.floor(q.p/g+1e-6)*g, 0, q.G.L-g), o={ p, l:g, n:q.n, v:.85, p0:p, l0:g, s:'d' };
     NoteLoop.notes.push(o); NoteLoop.requantOne(o); this.sel.clear(); this.sel.add(o);
-    this.drag={ mode:'size', hit:o, p0:q.p, n0:q.n, group:[{ o, p0:o.p0, l0:o.l0, n:o.n }], moved:true, created:true, snapped:true }; audition(q.n); this.changed();
+    this.drag={ pid:e.pointerId, mode:'size', hit:o, p0:q.p, n0:q.n, group:[{ o, p0:o.p0, l0:o.l0, n:o.n }], moved:true, created:true, snapped:true }; audition(q.n); this.changed();
   },
   move(e){
     const q=this.at(e), d=this.drag;
@@ -5989,20 +6040,21 @@ const Roll = {
   // DUPLICAR: lo elegido se copia a continuación (redondeado a tiempos); sin selección se duplica el loop entero
   duplicate(){
     const NL=NoteLoop; if(!NL.notes.length) return;
-    NL.snap();
     if(!this.sel.size){
       const L=NL.steps(), max=NL.free ? NL_MAX_BARS : 32;
       if(NL.bars*2>max){ flashMsg('El loop ya tiene el largo máximo'); return; }
+      NL.snap();
       const copy=NL.notes.filter(o=>o.p0<L).map(o=>({ ...o, p0:+(o.p0+L).toFixed(4) }));
       NL.bars*=2; if(!NL.free && !NL_BARS.includes(NL.bars)) NL.bars=32;
-      copy.forEach(o=>{ NL.requantOne(o); NL.notes.push(o); });
+      NL.requant(); copy.forEach(o=>{ NL.requantOne(o); NL.notes.push(o); });
       this.fit(); this.changed(); updLoopUI(); flashMsg(`Loop duplicado: ${NL.bars} compases`); return;
     }
+    NL.snap();
     let a=Infinity, b=-Infinity; this.sel.forEach(o=>{ a=Math.min(a,o.p0); b=Math.max(b,o.p0+o.l0); });
     const d=Math.max(4, Math.ceil((b-a)/4-1e-6)*4);
     // Si no cabe, el loop crece al siguiente largo disponible
     while(b+d>NL.steps() && NL.bars<(NL.free?NL_MAX_BARS:32)){ NL.bars = NL.free ? NL.bars+1 : NL_BARS[NL_BARS.indexOf(NL.bars)+1]; }
-    const L=NL.steps(), out=[];
+    const L=NL.steps(), out=[]; NL.requant();
     this.sel.forEach(o=>{ const p=o.p0+d; if(p<L) out.push({ ...o, p0:+p.toFixed(4) }); });
     out.forEach(o=>{ NL.requantOne(o); NL.notes.push(o); });
     this.sel=new Set(out); this.fit(); if(out.length) this.setX(out.reduce((m,o)=>Math.min(m,o.p),Infinity)-4); this.changed(); updLoopUI();
@@ -6020,7 +6072,8 @@ const Roll = {
     if(!c.on){ c.on=true; c.n=clamp(NoteLoop.low+Math.floor(NoteLoop.rows/2),0,127); c.p=this.x0; }
     const at=()=>NoteLoop.notes.find(o=>o.n===c.n && c.p>=o.p && c.p<o.p+Math.max(o.l,.35) && o.p<L);
     if(K==='Escape'){ if(!this.sel.size) return; this.sel.clear(); }
-    else if((K==='ArrowRight' || K==='ArrowLeft') && e.shiftKey){ const o=at(); if(o){ NoteLoop.snap(); o.l0=o.l=clamp(Math.round(o.l)+(K==='ArrowRight'?1:-1),1,Math.max(1,L-Math.floor(o.p))); changed=true; } }
+    else if((K==='ArrowRight' || K==='ArrowLeft') && e.shiftKey){ const o=at(); if(o){ NoteLoop.snap(); const g=this.grid();
+      o.l0=o.l=+clamp(o.l0+(K==='ArrowRight'?g:-g), .05, Math.max(.05,L-o.p)).toFixed(4); changed=true; } }
     else if(K==='ArrowRight') c.p=Math.min(L-1,c.p+1); else if(K==='ArrowLeft') c.p=Math.max(0,c.p-1);
     else if(K==='ArrowUp') c.n=Math.min(127,c.n+(e.shiftKey?12:1)); else if(K==='ArrowDown') c.n=Math.max(0,c.n-(e.shiftKey?12:1));
     else if(K==='Home') c.p=0; else if(K==='End') c.p=L-1;
@@ -6038,16 +6091,25 @@ const Roll = {
   vGeo(){ const { w, h, dpr }=fitCanvas(this.vc), G=this.geo(); return { w, h, dpr, kw:G.kw, x0:G.x0, cw:G.cw, L:G.L, span:G.span, pad:Math.round(5*dpr) }; },
   vAt(e){ const r=this.vc.getBoundingClientRect(), V=this.vGeo(), x=(e.clientX-r.left)*V.w/r.width, y=(e.clientY-r.top)*V.h/r.height;
     return { V, x, p:V.x0+(x-V.kw)/V.cw, v:clamp(1-(y-V.pad)/(V.h-2*V.pad), .05, 1) }; },
+  // Barras del carril: las notas que empiezan juntas (un acorde) se reparten unos px para verse y tocarse por separado
+  velBars(V, vis){
+    const X=p=>V.kw+(p-V.x0)*V.cw, bw=Math.max(3*V.dpr, Math.min(6*V.dpr, V.cw*.8)), out=[], list=vis.slice().sort((a,b)=>a.p-b.p || a.n-b.n);
+    let i=0; while(i<list.length){ const t=list[i].p; let j=i; while(j<list.length && list[j].p-t<.3) j++;
+      for(let k=i;k<j;k++) out.push({ o:list[k], x:X(list[k].p)+(k-i)*(bw+V.dpr), w:bw }); i=j; }
+    return out;
+  },
   vPaint(q){
-    const V=q.V, tol=Math.max(.5, 5*V.dpr/V.cw); let list=NoteLoop.notes.filter(o=>o.p<V.L && Math.abs(o.p-q.p)<=tol);
-    if(this.sel.size){ const s=list.filter(o=>this.sel.has(o)); if(s.length) list=s; }
-    if(!list.length) return;
+    const V=q.V, vis=NoteLoop.notes.filter(o=>o.p<V.L && o.p+o.l>=V.x0 && o.p<=V.x0+V.span), bars=this.velBars(V, vis), d=this.vdrag;
+    let hit=null, best=Infinity; for(const b of bars){ const dx = q.x<b.x ? b.x-q.x : q.x>b.x+b.w ? q.x-b.x-b.w : 0; if(dx<best){ best=dx; hit=b.o; } }
+    if(!hit || best>6*V.dpr) return;
+    let list=[hit];
+    if(this.sel.has(hit)) list=NoteLoop.notes.filter(o=>this.sel.has(o) && Math.abs(o.p-hit.p)<.3);   // en un acorde elegido, todas sus notas
     const v=+q.v.toFixed(2); let ch=false;
     for(const o of list){ if(o.v!==v){ if(!this.vdrag.snapped){ NoteLoop.snap(); this.vdrag.snapped=true; } o.v=v; ch=true; } }
     if(ch){ this.changed(); flashMsg('Velocity '+Math.round(v*127)); }
   },
-  vDown(e){ if(e.button>0) return; e.preventDefault(); try{ this.vc.setPointerCapture(e.pointerId); }catch(_){} this.vdrag={ snapped:false }; this.vPaint(this.vAt(e)); },
-  vMove(e){ if(!this.vdrag) return; this.vPaint(this.vAt(e)); },
+  vDown(e){ if(e.button>0 || this.vdrag) return; e.preventDefault(); try{ this.vc.setPointerCapture(e.pointerId); }catch(_){} this.vdrag={ snapped:false, pid:e.pointerId, hit:null }; this.vPaint(this.vAt(e)); },
+  vMove(e){ if(!this.vdrag || this.vdrag.pid!==e.pointerId) return; this.vPaint(this.vAt(e)); },
   // Nombre de los acordes en la franja superior: un acorde son 2 o más notas que EMPIEZAN juntas (± media semicorchea);
   // las notas sueltas de una melodía no cambian el nombre. Solo se escribe cuando cambia.
   chordMarks(G, notes){
@@ -6080,8 +6142,8 @@ const Roll = {
       if(st%16===0 && st<G.L) barNums.push([x, st/16+1]); }
     if(xEnd>=G.L){ const x=Math.round(X(G.L)); g.fillStyle='rgba(255,90,74,.5)'; g.fillRect(x-1,0,2,G.h); }
     // Notas (las elegidas en cian); con CUANTIZAR, una marca tenue donde las tocaste
-    let above=0, below=0; const vis=[];
-    for(const o of NL.notes){ if(o.p>=G.L || o.p+o.l<x0 || o.p>xEnd) continue; const r=G.hi-o.n; if(r<0){ above++; continue; } if(r>=G.rows){ below++; continue; } vis.push(o); }
+    let above=0, below=0; const vis=[], tw=[];
+    for(const o of NL.notes){ if(o.p>=G.L || o.p+o.l<x0 || o.p>xEnd) continue; tw.push(o); const r=G.hi-o.n; if(r<0){ above++; continue; } if(r>=G.rows){ below++; continue; } vis.push(o); }
     for(const o of vis){
       const r=G.hi-o.n, x=X(o.p), w=Math.max(3*G.dpr, Math.min(o.l,G.L-o.p)*G.cw-G.dpr), y=G.top+r*G.rh+G.dpr, on=this.sel.has(o);
       if(NL.qOn && Math.abs(o.p0-o.p)>.02){ g.fillStyle='rgba(255,255,255,.35)'; g.fillRect(Math.round(X(o.p0)), y+G.rh*.25, Math.max(1,G.dpr), G.rh*.5-2*G.dpr); }
@@ -6103,15 +6165,15 @@ const Roll = {
     if(!NL.notes.length){ g.fillStyle='rgba(169,173,181,.85)'; g.font=`500 ${13*G.dpr}px ${this.font}`;
       let t=isTouchOnly ? 'Activa REC PIANO y toca, o toca aquí para dibujar notas' : 'Activa REC PIANO y toca, o haz clic aquí para dibujar notas'; if(g.measureText(t).width>G.w-G.kw-16*G.dpr) t=isTouchOnly ? 'Toca para dibujar notas' : 'Haz clic para dibujar notas'; const tw=g.measureText(t).width;
       g.fillText(t, G.kw+Math.max(8*G.dpr,(G.w-G.kw-tw)/2), G.top+(G.h-G.top)/2); }
-    this.drawVel(G, vis);
+    this.drawVel(G, tw);   // el carril muestra todas las notas del tramo, también las que quedan fuera de la vista vertical
   },
   drawVel(G, vis){
     const V=this.vGeo(), g=this.vc.getContext('2d'), X=p=>V.kw+(p-V.x0)*V.cw, H=V.h-2*V.pad;
     g.fillStyle='#0b0c0e'; g.fillRect(0,0,V.w,V.h);
     g.fillStyle='#6a6e77'; g.font=`700 ${9.5*V.dpr}px ${this.font}`; g.textBaseline='middle'; g.fillText('VEL', 6*V.dpr, V.h/2);
     for(let st=Math.ceil(V.x0/4)*4; st<=V.x0+V.span; st+=4){ const x=Math.round(X(st)); g.fillStyle = st%16===0 ? 'rgba(255,255,255,.14)' : 'rgba(255,255,255,.05)'; g.fillRect(x,0,1,V.h); }
-    for(const o of vis){ const x=X(o.p), bw=Math.max(2*V.dpr, Math.min(6*V.dpr, o.l*V.cw-V.dpr)), h=Math.max(2*V.dpr, o.v*H), on=this.sel.has(o);
-      g.fillStyle = on ? '#2fe0ff' : `rgba(255,177,59,${.45+.55*o.v})`; g.fillRect(x, V.pad+H-h, bw, h); }
+    for(const b of this.velBars(V, vis)){ const o=b.o, h=Math.max(2*V.dpr, o.v*H), on=this.sel.has(o);
+      g.fillStyle = on ? '#2fe0ff' : `rgba(255,177,59,${.45+.55*o.v})`; g.fillRect(b.x, V.pad+H-h, b.w, h); }
   },
   frame(){
     if(!this.cv) return;
@@ -6125,8 +6187,9 @@ const Roll = {
       if(NL.growing && this.follow && ph>=this.x0+sp) this.setX(Math.floor(ph/sp)*sp);
     } else if(!seq.playing) this.follow=true;
     if(!this.dirty && ph===this.lastPh && !(this.drag && this.drag.mode==='box')) return;
-    const G=this.geo();
-    if(this.dirty || this.st.width!==G.w || this.st.height!==G.h){ this.drawStatic(G); this.dirty=false; }
+    const G=this.geo(), nowp=performance.now();
+    if((this.dirty && !(this.cost>12 && nowp-this.drawnAt<250)) || this.st.width!==G.w || this.st.height!==G.h){
+      const t0=performance.now(); this.drawStatic(G); this.dirty=false; this.drawnAt=t0; this.cost=performance.now()-t0; }
     const g=this.cv.getContext('2d'); g.clearRect(0,0,G.w,G.h); g.drawImage(this.st,0,0);
     if(ph!==null && ph>=G.x0 && ph<=G.x0+G.span){ const x=Math.round(G.kw+(ph-G.x0)*G.cw); g.fillStyle = NL.rec ? 'rgba(255,90,74,.95)' : 'rgba(255,255,255,.85)'; g.fillRect(x,0,Math.max(1,G.dpr),G.h); }
     const d=this.drag; if(d && d.mode==='box'){ g.strokeStyle='#2fe0ff'; g.lineWidth=G.dpr; g.setLineDash([4*G.dpr,3*G.dpr]); g.strokeRect(Math.min(d.x0,d.x1),Math.min(d.y0,d.y1),Math.abs(d.x1-d.x0),Math.abs(d.y1-d.y0)); g.setLineDash([]); g.fillStyle='rgba(47,224,255,.08)'; g.fillRect(Math.min(d.x0,d.x1),Math.min(d.y0,d.y1),Math.abs(d.x1-d.x0),Math.abs(d.y1-d.y0)); }
@@ -6158,8 +6221,10 @@ const Piano = {
       if(!k || +k.dataset.n===cur) return;
       // Con el dedo hay que salir de verdad de la tecla (6 px) para hacer glissando: un dedo apoyado que tiembla
       // en el borde, o que roza la tecla negra de al lado, no corta su nota ni cambia a otra
-      if(e.pointerType!=='mouse'){ const ck=this.keys.get(cur); if(ck){ const r=ck.getBoundingClientRect();
-        if(e.clientX>r.left-6 && e.clientX<r.right+6 && e.clientY>r.top-6 && e.clientY<r.bottom+6) return; } }
+      if(e.pointerType!=='mouse'){ const ck=this.keys.get(cur); if(ck){
+        if(k.classList.contains('bk') && !ck.classList.contains('bk')){ const rk=k.getBoundingClientRect();   // blanca → negra que la tapa
+          if(!(e.clientX>rk.left+2 && e.clientX<rk.right-2 && e.clientY<rk.bottom-2)) return; }
+        else { const r=ck.getBoundingClientRect(); if(e.clientX>r.left-6 && e.clientX<r.right+6 && e.clientY>r.top-6 && e.clientY<r.bottom+6) return; } } }
       SynthIn.off('p'+e.pointerId, e.timeStamp); this.ptrOn(e,k); });
     const up=e=>{ if(!this.ptr.has(e.pointerId)) return; this.ptr.delete(e.pointerId); SynthIn.off('p'+e.pointerId, e.timeStamp); };
     el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up); el.addEventListener('lostpointercapture', up);
@@ -6302,7 +6367,7 @@ const MIDI = {
     else if(c===74){ const k=SK['f.cut']; if(k) k.knob.set(30*Math.pow(18000/30, v/127), true); }
     else if(c===71){ const k=SK['f.res']; if(k) k.knob.set(v/127, true); }
     else if(c===7){ const k=SK['mix.vol']; if(k) k.knob.set(v/127*1.2, true); }
-    else if(c===120){ this.allOff(); synthAllOff(true); }            // All Sound Off: silencio inmediato
+    else if(c===120){ this.allOff(); SY.sustained.forEach(e=>NoteLoop.recOff(e, performance.now())); SY.sustained=[]; synthAllOff(true); paintSustained(); ChordView.mark(); }            // All Sound Off: silencio inmediato
     else if(c===123) SynthIn.releaseAll('m');                        // All Notes Off: se sueltan las notas MIDI
     else if(c===121){ SY.pedal=false; setSustain(wantSus()); setBend(0); setMod(0); Wheels.pitch && Wheels.pitch.set(0); Wheels.mod && Wheels.mod.set(0); }
   },
@@ -6914,6 +6979,11 @@ function onSynthParam(path){
   else if(path==='mode'){ synthAllOff(false); SY.mono.stack=[]; SY.mono.cur=null;
     // Los presets MONO (bajos, leads) suelen traer 1 voz: al pasar a POLY se dan 24 para que un acorde no se robe a sí mismo
     if(SY.patch.mode==='poly' && SY.patch.voices<8){ SY.patch.voices=24; if(SK.voices) SK.voices.set(24); flashMsg('POLY · 24 voces: ya puedes tocar acordes completos'); }
+    SY.sustained=[]; paintSustained();
+    // Las teclas que sigues pulsando vuelven a sonar en el modo nuevo (sin cortar la interpretación)
+    if(ctx && !SY.patch.arp.on && SY.held.size){ const t=ctx.currentTime+.006, list=[...SY.held.values()];
+      if(SY.patch.mode==='poly') list.forEach(e=>{ e.outs=transformNote(e.note); e.voices=e.outs.map(n=>voiceOn(n, e.vel, t)); });
+      else { SY.mono.stack=list.slice(); list.forEach(e=>{ e.outs=transformNote(e.note); e.voices=[]; }); const top=list[list.length-1]; top.voices=[voiceOn(top.outs[0], top.vel, t)]; } }
     updPolyBtn(); ChordView.mark(); }
   else if(path==='arp.on') arpToggled();
   else if(path==='arp.hold' && !SY.patch.arp.hold) Arp.prune();
@@ -7141,6 +7211,7 @@ function patchSwapped(was){
 function loadPreset(it, quiet){
   const was=SY.patch;
   SY.patch=buildPatch(it.p); SY.preset=it.name; SY.edited=false;
+  if(it.user && SY.patch.mode==='poly' && SY.patch.voices<16) SY.patch.voices=16;   // presets propios de antes: mínimo 16 voces
   patchSwapped(was);
   synthApplyAll(); syncSynthUI(); fillPresetSelect();
   visualEvent('preset',1,{name:it.name,cat:it.cat,eng:SY.patch.eng});
@@ -7264,7 +7335,7 @@ const Synth = {
   lt:0, lv:-1,
   build(){ buildSynthGraph(); },
   workletReady(){ if(S.lofi) S.lofi.upgrade(); },
-  onPlay(t){ if(S.lfo && SY.patch.lfo.sync) lfoStart(t); Arp.cancelAhead(); Arp.next=null; NoteLoop.skip.clear(); if(!NoteLoop.growing) NoteLoop.origin=0; updLoopUI(); },
+  onPlay(t){ if(S.lfo && SY.patch.lfo.sync) lfoStart(t); Arp.cancelAhead(); Arp.next=null; NoteLoop.skip.clear(); if(!NoteLoop.growing) NoteLoop.origin=0; NoteLoop.flushCountIn(t); updLoopUI(); },
   onStep(abs, t, tS){
     if(abs%16===0 && S.lfoDirty && SY.patch.lfo.sync) lfoStart(t);
     NoteLoop.play(abs, t, tS);   // primero el loop, luego el arpegiador (así no se duplica lo que se graba)
@@ -7286,9 +7357,10 @@ const Synth = {
       const n=SY.voices.filter(v=>!v.dead && !v.killed && v.t0<=ctx.currentTime+.01 && v.endAt>ctx.currentTime).length;
       const m=SY.patch.mode==='mono', k=(m?'M':'P')+n;
       if(k!==this.lv){ this.lv=k; $('#syVoices').textContent=(m?'MONO · ':'')+n+(n===1?' voz':' voces'); } }
+    if(SY.sustained.length && now-(this.ct||0)>200){ this.ct=now; ChordView.mark(); }
     ChordView.tick(now);
   },
-  snapshot(){ return { patch:clone(SY.patch), preset:SY.preset, edited:SY.edited, pcOct:SY.pcOct, pcVel:SY.pcVel }; },
+  snapshot(){ return { patch:clone(SY.patch), preset:SY.preset, edited:SY.edited, pcOct:SY.pcOct, pcVel:SY.pcVel, vv:2 }; },
   load(d){
     if(!d || typeof d!=='object') return;
     const was=SY.patch; SY.patch=buildPatch(d.patch||{}); patchSwapped(was);
@@ -7296,6 +7368,9 @@ const Synth = {
     SY.edited=!!d.edited;
     if(Number.isFinite(d.pcOct)) SY.pcOct=clamp(Math.round(d.pcOct),1,7);
     if(Number.isFinite(d.pcVel)) SY.pcVel=clamp(Math.round(d.pcVel),1,127);
+    // Proyectos guardados antes de la polifonía ampliada: POLY con menos de 16 voces sube al valor actual del preset
+    if(!(d.vv>=2) && SY.patch.mode==='poly' && SY.patch.voices<16){ const it=PRESETS.find(x=>x.name===SY.preset);
+      SY.patch.voices=Math.max(16, it ? buildPatch(it.p).voices : 24); }
     synthApplyAll(); syncSynthUI(); fillPresetSelect(); Piano.build(); updKbUI();
     visualEvent('preset',1,{name:SY.preset,cat:(allPresets().find(x=>x.name===SY.preset)||{cat:'user'}).cat,eng:SY.patch.eng});
   },
@@ -7637,6 +7712,7 @@ const Hist = {
   is(e, kind){ return !kind || e.kind===kind || (kind==='pattern' && e.kind==='banks'); },
   push(kind, bank){ this.undo.push(this.snap(kind, bank)); if(this.undo.length>80) this.undo.shift(); this.redo=[];
     if(kind==='pad'){ let n=0; for(let k=this.undo.length-1;k>=0;k--){ const e=this.undo[k]; if(e.kind==='pad' && e.buffer && e.buffer!==pads[e.bank].origBuffer && ++n>8) this.undo.splice(k,1); } }
+    if(kind==='notes'){ let n=0; for(let k=this.undo.length-1;k>=0;k--){ const e=this.undo[k]; if(e.kind==='notes' && e.data.length>200000 && ++n>12) this.undo.splice(k,1); } }   // loops enormes: 12 pasos de deshacer
     this.ui(); },
   has(kind){ return this.undo.some(e=>this.is(e,kind)); },
   apply(e){
