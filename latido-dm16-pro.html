@@ -829,6 +829,37 @@ body.bounce-lock #seqZone button, body.bounce-lock #seqZone select, body.bounce-
 @media(max-width:760px){.master-bottom{grid-template-columns:minmax(0,1fr) minmax(210px,38%)}.master-bottom .visual-screen{height:100px;min-height:100px}.take-mini-control{font-size:9px}}
 @media(max-width:560px){.master-bottom{grid-template-columns:1fr}.master-bottom .visual-screen{width:min(100%,330px);justify-self:end;height:100px}.take-cards{grid-template-columns:1fr}}
 
+/* =====================================================================
+   AUDITORÍA 2 · estados de los botones, táctil y pantallas chicas
+   ===================================================================== */
+/* ON: además del LED, el botón entero cambia (texto blanco y un halo del color de su función) */
+.hw.on:not(.primary){ color:#fff; box-shadow:inset 0 1px 0 rgba(255,255,255,.16), inset 0 0 0 1px rgba(255,177,59,.38), inset 0 -12px 18px -14px rgba(255,177,59,.55), 0 0 0 1px #0a0b0d, 0 3px 0 #0c0d0f, 0 5px 8px rgba(0,0,0,.35); }
+.seg .hw.on{ color:#1b1206; }
+/* PLAYING */
+[data-act=play].on, #takePlay.on{ box-shadow:inset 0 1px 0 rgba(255,255,255,.16), inset 0 0 0 1px rgba(56,242,122,.45), inset 0 -12px 18px -12px rgba(56,242,122,.5), 0 0 0 1px #0a0b0d, 0 3px 0 #0c0d0f, 0 0 16px -6px rgba(56,242,122,.7); }
+/* RECORDING */
+[data-act=rec].on, #liveRecBtn.on, #sesRec.on, #nlRec.on, #dRec.on, #btnRecSound.on, #takeOverdub.on{ color:#fff; background:linear-gradient(180deg,#5a2620,#33161a);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12), inset 0 0 0 1px rgba(255,90,74,.6), 0 0 0 1px #0a0b0d, 0 3px 0 #0c0d0f, 0 0 18px -5px rgba(255,70,60,.75); }
+/* ARMED: grabación esperando la cuenta o el compás */
+.hw.armed-rec{ color:#ffd9d2; box-shadow:inset 0 0 0 1px rgba(255,90,74,.75), 0 0 0 1px #0a0b0d, 0 3px 0 #0c0d0f, 0 0 0 3px rgba(255,90,74,.18); }
+.hw.armed-rec > .led{ background:#ff5a4a; box-shadow:0 0 6px #ff5a4a; }
+#liveRecBtn.armed{ background:linear-gradient(180deg,#ffc15e,#eb9a28); color:#1b1206; }
+/* MUTE y SOLO */
+#edMute.on{ box-shadow:inset 0 1px 0 rgba(255,255,255,.14), inset 0 0 0 1px rgba(255,59,59,.55), 0 0 0 1px #0a0b0d, 0 3px 0 #0c0d0f, 0 0 14px -6px rgba(255,59,59,.8); }
+#edSolo.on{ box-shadow:inset 0 1px 0 rgba(255,255,255,.14), inset 0 0 0 1px rgba(255,216,74,.6), 0 0 0 1px #0a0b0d, 0 3px 0 #0c0d0f, 0 0 14px -6px rgba(255,216,74,.85); }
+.rl.solo{ box-shadow:inset 3px 0 0 #ffd84a; }
+.rl.solo span::after{ content:" S"; color:#ffd84a; font-weight:700; }
+/* DISABLED: apagado de verdad (sin LED ni brillo) */
+.hw:disabled{ filter:saturate(.25); box-shadow:inset 0 0 0 1px rgba(255,255,255,.04), 0 0 0 1px #0a0b0d; }
+.hw:disabled > .led{ background:#24252a; box-shadow:none; }
+/* LED que late con el pulso (Web Animations, solo transform: no repinta el botón) */
+.hw > .led{ will-change:auto; }
+/* Táctil: objetivos de al menos ~32 px */
+@media (pointer:coarse){ .lat[role=button]{ padding:8px 6px; } .take-card .tc-actions .hw{ padding:8px 9px; font-size:11px; } }
+/* Teléfonos: los botones de arriba ya no pisan su texto (dos líneas en vez de desbordarse) */
+@media (max-width:480px){ .io .hw{ white-space:normal; line-height:1.12; text-align:center; min-height:44px; padding:7px 8px; letter-spacing:.05em; } .io .hw .led{ flex:none; } }
+@media (prefers-reduced-motion: reduce){ .hw.armed-rec > .led{ animation:none; } }
+
 </style>
 </head>
 <body>
@@ -2168,7 +2199,9 @@ function metal(oc, out, fund, dur){ [2,3,4.16,5.43,6.79,8.21].forEach(r=>{ const
 function hat(oc, out, d){
   const sum=mkG(oc,.22); metal(oc,sum,40,d+.05);
   const g=mkG(oc,0); dec(g,1,d); chain(sum, mkF(oc,'bandpass',10000,.8), mkF(oc,'highpass',7000), g, out);
-  const n=mkNoise(oc,d+.05), ng=mkG(oc,0); dec(ng,.45,d*.8); chain(n, mkF(oc,'highpass',8000), ng, out); n.start(0);
+  const n=mkNoise(oc,d+.05), ng=mkG(oc,0), air=mkF(oc,'highshelf',11000); air.gain.value=3; dec(ng,.45,d*.8); chain(n, mkF(oc,'highpass',8000), air, ng, out); n.start(0);
+  // Definición: un «tic» de 4 ms muy agudo al principio de cada golpe (se nota incluso tapado por el bombo)
+  const k=mkNoise(oc,.012), kg=mkG(oc,0); dec(kg,.5,.004); chain(k, mkF(oc,'highpass',9500), kg, out); k.start(0);
 }
 function tom(oc, out, f1, f2, d){
   const o=mkO(oc,'sine',f1); o.frequency.setValueAtTime(f1,0); o.frequency.exponentialRampToValueAtTime(f2,d*.7);
@@ -2180,16 +2213,25 @@ const GEN = {
   kick(oc,out){
     const o=mkO(oc,'sine',160); o.frequency.setValueAtTime(168,0); o.frequency.exponentialRampToValueAtTime(58,.075); o.frequency.exponentialRampToValueAtTime(43,.5);
     const sh=oc.createWaveShaper(); sh.curve=softClip(2.4);
-    const g=mkG(oc,0); g.gain.setValueAtTime(1,0); g.gain.setTargetAtTime(0,.045,.13);
+    // Cuerpo: la caída va en dos tramos (golpe rápido y luego cola más larga) con el MISMO oscilador:
+    // más grave sostenido sin capas desfasadas que se cancelen
+    const g=mkG(oc,0); g.gain.setValueAtTime(1,0); g.gain.setTargetAtTime(.52,.045,.055); g.gain.setTargetAtTime(0,.17,.2);
     chain(o,sh,g,out); o.start(0); o.stop(.7);
     const n=mkNoise(oc,.03), ng=mkG(oc,0); dec(ng,.55,.014); chain(n, mkF(oc,'highpass',2200), ng, out); n.start(0);
+    // Mazo: clic corto en 3,4 kHz para que el bombo se oiga también en parlantes pequeños
+    const m=mkNoise(oc,.014), mg=mkG(oc,0); dec(mg,.3,.007); chain(m, mkF(oc,'bandpass',3400,1.4), mg, out); m.start(0);
   },
   snare(oc,out){
-    const n=mkNoise(oc,.35), pk=mkF(oc,'peaking',5200,1); pk.gain.value=5; const ng=mkG(oc,0); dec(ng,.85,.22);
+    // Pegada: el ruido arranca con un pico de 1 ms y baja a la mitad en 12 ms antes de su caída normal
+    const n=mkNoise(oc,.35), pk=mkF(oc,'peaking',5200,1); pk.gain.value=5; const ng=mkG(oc,0), G=ng.gain;
+    G.setValueAtTime(0,0); G.linearRampToValueAtTime(1,.001); G.exponentialRampToValueAtTime(.5,.012); G.exponentialRampToValueAtTime(.0006,.22);
     chain(n, mkF(oc,'highpass',1300), pk, ng, out); n.start(0);
-    const t=mkO(oc,'triangle',220); t.frequency.setValueAtTime(228,0); t.frequency.exponentialRampToValueAtTime(176,.06);
-    const tg=mkG(oc,0); dec(tg,.85,.11); chain(t,tg,out); t.start(0); t.stop(.2);
+    const t=mkO(oc,'triangle',220); t.frequency.setValueAtTime(238,0); t.frequency.exponentialRampToValueAtTime(178,.05);
+    const ts=oc.createWaveShaper(); ts.curve=softClip(1.6);
+    const tg=mkG(oc,0); dec(tg,.85,.135); chain(t,ts,tg,out); t.start(0); t.stop(.2);
     const t2=mkO(oc,'sine',334); const tg2=mkG(oc,0); dec(tg2,.35,.07); chain(t2,tg2,out); t2.start(0); t2.stop(.15);
+    // Pegada: el «crack» del parche (ruido en torno a 2,6 kHz durante 16 ms)
+    const c=mkNoise(oc,.03), cg=mkG(oc,0); dec(cg,.95,.018); chain(c, mkF(oc,'bandpass',2600,.7), cg, out); c.start(0);
   },
   chh(oc,out){ hat(oc,out,.07); },
   ohh(oc,out){ hat(oc,out,.5); },
@@ -2230,6 +2272,10 @@ const GEN = {
     const sh=oc.createWaveShaper(); sh.curve=softClip(1.7);
     const g=mkG(oc,0); g.gain.setValueAtTime(0,0); g.gain.linearRampToValueAtTime(1,.003); g.gain.setTargetAtTime(0,.1,.36);
     chain(o,sh,g,out); o.start(0); o.stop(1.4);
+    // Profundidad que se oye también en parlantes chicos: el 2.º armónico, en fase con la fundamental (siempre ×2)
+    const o2=mkO(oc,'sine',110); o2.frequency.setValueAtTime(220,0); o2.frequency.exponentialRampToValueAtTime(110,.06);
+    const g2=mkG(oc,0); g2.gain.setValueAtTime(0,0); g2.gain.linearRampToValueAtTime(.38,.004); g2.gain.setTargetAtTime(0,.09,.32);
+    chain(o2,g2,out); o2.start(0); o2.stop(1.4);
   },
   zap(oc,out){
     const o=mkO(oc,'sawtooth',1800); o.frequency.setValueAtTime(2200,0); o.frequency.exponentialRampToValueAtTime(70,.22);
@@ -2260,7 +2306,8 @@ function finalize(b){
 }
 // Kits de batería: 808 (sintetizado como las cajas analógicas) y LO-FI (el clásico pasado por un sampler antiguo)
 function hat808(oc, out, d){ const sum=mkG(oc,.2); metal(oc,sum,42,d+.05); const g=mkG(oc,0); dec(g,1,d,.0005);
-  chain(sum, mkF(oc,'bandpass',10500,1), mkF(oc,'highpass',8000), g, out); }
+  chain(sum, mkF(oc,'bandpass',10500,1), mkF(oc,'highpass',8000), g, out);
+  const k=mkNoise(oc,.01), kg=mkG(oc,0); dec(kg,.35,.003); chain(k, mkF(oc,'highpass',10000), kg, out); k.start(0); }
 function tom808(oc, out, f, d){ const o=mkO(oc,'sine',f); o.frequency.setValueAtTime(f*1.35,0); o.frequency.exponentialRampToValueAtTime(f,.05); o.frequency.exponentialRampToValueAtTime(f*.92,d);
   const g=mkG(oc,0); g.gain.setValueAtTime(0,0); g.gain.linearRampToValueAtTime(1,.002); g.gain.setTargetAtTime(0,.03,d/4); chain(o,g,out); o.start(0); o.stop(d+.02); }
 const GEN808 = {
@@ -2276,6 +2323,7 @@ const GEN808 = {
       const g=mkG(oc,0); dec(g,a,d); chain(o,g,out); o.start(0); o.stop(d+.05); });
     const n=mkNoise(oc,.3), pk=mkF(oc,'peaking',6500,1.2); pk.gain.value=4; const ng=mkG(oc,0); dec(ng,.75,.18);
     chain(n, mkF(oc,'highpass',1800), pk, ng, out); n.start(0);
+    const c=mkNoise(oc,.025), cg=mkG(oc,0); dec(cg,.5,.012); chain(c, mkF(oc,'bandpass',3000,1), cg, out); c.start(0);
   },
   chh(oc,out){ hat808(oc,out,.045); },
   ohh(oc,out){ hat808(oc,out,.42); },
@@ -2365,7 +2413,47 @@ const SoundBank={
   async apply(preview,iOverride){const i=iOverride==null?sel:iOverride,p=pads[i];if(p.wantCustom){flashMsg('Este pad tiene un sample propio: el selector no lo reemplaza');return;}if(iOverride==null)padUndoPoint(i);const name=this.variant,key=this.cat+'|'+this.type+'|'+name,vg=variantGen(this.cat,name);p.soundSpec={cat:this.cat,type:this.type,variant:name,favorite:this.favorite};p.name=name;p.sampleName=name.toLowerCase();p.gen=vg.gen;const token=(this.tokens.get(i)||0)+1;this.tokens.set(i,token);let b=this.cache.get(key);if(!b){const OAC=window.OfflineAudioContext||window.webkitOfflineAudioContext;if(!OAC||!ctx)return;const gen=(vg.k808&&GEN808[vg.gen])||GEN[vg.gen]||GEN.kick,dur=Math.max(.35,(vg.k808&&KITS.k808.dur[vg.gen])||DUR[vg.gen]||.6);try{const oc=new OAC(1,Math.ceil(ctx.sampleRate*dur),ctx.sampleRate);gen(oc,oc.destination);b=variantBuffer(await new Promise((res,rej)=>{const r=oc.startRendering();r.then?r.then(res,rej):oc.oncomplete=e=>res(e.renderedBuffer);}),name);this.cache.set(key,b);}catch(e){console.warn('Variante no disponible',e);return;}}if(token!==this.tokens.get(i))return;if(ctx)chokeVoices(i,ctx.currentTime);p.buffer=b;p.origBuffer=b;p.revBuffer=null;p.wantCustom=false;p.defaults.name=name;updatePadLabel(i);if(sel===i){renderEditor(true);updateOLED();drawOledWave();}markDirty();if(preview&&ctx){if(triggerPad(i,.9))visualEvent('pad',.9,{...padVisualData(i)});}flashMsg('Sonido: '+name);},
   preview(){if(ensureAudio())this.apply(true);},
 };
-Object.assign(KITS,{modern:{label:'MODERN',post:b=>variantBuffer(b,'Modern Kit')},house:{label:'HOUSE',post:b=>variantBuffer(b,'House Kit')},techno:{label:'TECHNO',post:b=>variantBuffer(b,'Techno Kit')},trap:{label:'TRAP',post:b=>variantBuffer(b,'Trap Kit')},hiphop:{label:'HIP-HOP',post:b=>variantBuffer(b,'Hip-Hop Kit')},electro:{label:'ELECTRO',post:b=>variantBuffer(b,'Electro Kit')},retro:{label:'RETRO',post:b=>variantBuffer(b,'Retro Kit')},synthwave:{label:'SYNTHWAVE',post:b=>variantBuffer(b,'Synthwave Kit')},industrial:{label:'INDUSTRIAL',post:b=>variantBuffer(b,'Industrial Kit')},cyber:{label:'CYBER',post:b=>variantBuffer(b,'Cyber Kit')},arcade:{label:'ARCADE',post:b=>variantBuffer(b,'Arcade Kit')},ambient:{label:'AMBIENT',post:b=>variantBuffer(b,'Ambient Kit')},hard:{label:'HARD',post:b=>variantBuffer(b,'Hard Kit')},minimal:{label:'MINIMAL',post:b=>variantBuffer(b,'Minimal Kit')},latido:{label:'LATIDO',post:b=>variantBuffer(b,'LATIDO Kit')}});
+// Carácter de cada kit. Antes los 15 kits nuevos pasaban por la misma envolvente aleatoria y sonaban casi igual
+// que el CLÁSICO; ahora cada uno tiene afinación por familia (graves, medios, agudos), caída, saturación, tono,
+// resolución y frecuencia de muestreo propias. Todo se calcula al cambiar de kit, nunca al tocar.
+function kitPost(c){
+  return (b, gen)=>{
+    const sr=b.sampleRate, fam=/^(kick|sub|tom1|tom2)$/.test(gen) ? 'low' : /^(chh|ohh|crash|shaker)$/.test(gen) ? 'high' : 'mid', tune=c[fam]||0;
+    let out=b;
+    if(tune){ const r=Math.pow(2,tune/12), n=Math.max(16,Math.floor(b.length/r));
+      try{ out=new AudioBuffer({ length:n, sampleRate:sr, numberOfChannels:b.numberOfChannels }); }catch(_){ out=b; }
+      if(out!==b) for(let ch=0;ch<b.numberOfChannels;ch++){ const s=b.getChannelData(ch), d=out.getChannelData(ch), L=s.length-1;
+        for(let i=0;i<n;i++){ const x=i*r, k=x|0, f=x-k; d[i]=k<L ? s[k]+(s[k+1]-s[k])*f : (s[L]||0); } } }
+    const tight=c.tight||0, drv=c.drive||1, td=Math.tanh(drv), lpA=c.lp ? Math.exp(-2*Math.PI*c.lp/sr) : 0, hpA=c.hp ? Math.exp(-2*Math.PI*c.hp/sr) : 0, q=c.bits ? Math.pow(2,c.bits-1) : 0, hold=Math.max(1,c.hold|0);
+    for(let ch=0;ch<out.numberOfChannels;ch++){ const d=out.getChannelData(ch), L=d.length; let lp=0, hpy=0, hpx=0, h=0;
+      for(let i=0;i<L;i++){ let x=d[i];
+        if(tight) x*=Math.pow(1-i/L, tight);
+        if(drv>1) x=Math.tanh(x*drv)/td;
+        if(lpA){ lp=x+lpA*(lp-x); x=lp; }
+        if(hpA){ const y=hpA*(hpy+x-hpx); hpx=x; hpy=y; x=y; }
+        if(hold>1 || q){ if(i%hold===0) h=q ? Math.round(x*q)/q : x; x=h; }
+        d[i]=x; } }
+    return out;
+  };
+}
+const KIT_CHAR={
+  modern:{ label:'MODERN', tight:.6, drive:1.25, lp:17000, low:1 },
+  house:{ label:'HOUSE', low:-1, drive:1.3, lp:13500, high:1 },
+  techno:{ label:'TECHNO', low:-2, drive:1.6, lp:11500, hp:28, tight:.4 },
+  trap:{ label:'TRAP', base808:true, low:-3, high:3, drive:1.3 },
+  hiphop:{ label:'HIP-HOP', low:-1, lp:8500, drive:1.35, bits:12, tight:.3 },
+  electro:{ label:'ELECTRO', base808:true, drive:1.7, lp:15000, mid:2, high:1 },
+  retro:{ label:'RETRO', bits:8, hold:2, lp:7500, drive:1.2 },
+  synthwave:{ label:'SYNTHWAVE', lp:10000, drive:1.2, low:-1, mid:-1 },
+  industrial:{ label:'INDUSTRIAL', drive:2.4, bits:10, lp:10500, hp:55, low:-1 },
+  cyber:{ label:'CYBER', drive:1.4, mid:3, high:2, lp:16000, bits:12 },
+  arcade:{ label:'ARCADE', bits:6, hold:4, lp:9000, mid:2, high:2 },
+  ambient:{ label:'AMBIENT', lp:6000, low:-2, mid:-2, high:-3 },
+  hard:{ label:'HARD', drive:2.1, tight:.8, low:-1, hp:40 },
+  minimal:{ label:'MINIMAL', tight:1.6, lp:11000, drive:1.1, low:1, high:1 },
+  latido:{ label:'LATIDO', drive:1.4, lp:15500, low:-1, mid:1, high:1, tight:.2 },
+};
+Object.entries(KIT_CHAR).forEach(([id,c])=>{ KITS[id]=Object.assign({ label:c.label, post:kitPost(c) }, c.base808 ? { gen:GEN808, dur:KITS.k808.dur } : {}); });
 
 let kitId = KITS[store.get('latido.kit')] ? store.get('latido.kit') : 'classic', kitBusy=false;
 let kitRenderGen=0;
@@ -2377,7 +2465,7 @@ async function renderKit(id){
   const render = oc => new Promise((res, rej)=>{ oc.oncomplete=e=>res(e.renderedBuffer); try{ const r=oc.startRendering(); if(r && r.then) r.then(res, rej); }catch(e){ rej(e); } });
   return Promise.all(pads.map(async p=>{ try{
     const gen=(K.gen && K.gen[p.gen]) || GEN[p.gen], dur=(K.dur && K.dur[p.gen]) || DUR[p.gen];
-    const oc=new OAC(1, Math.ceil(sr*dur), sr); gen(oc, oc.destination); const b=await render(oc); if(K.post) K.post(b); return finalize(b);
+    const oc=new OAC(1, Math.ceil(sr*dur), sr); gen(oc, oc.destination); let b=await render(oc); if(K.post) b=K.post(b, p.gen)||b; return finalize(b);
   }catch(e){ console.warn('No se pudo sintetizar', p.name, e); return null; } }));
 }
 async function renderDefaults(){
@@ -2614,6 +2702,7 @@ function updateMuteSolo(){
     if(ctx && p.n) p.n.out.gain.setTargetAtTime(p.audible?1:0, ctx.currentTime, .006);
     padEls[i] && padEls[i].classList.toggle('muted', !p.audible);
     rowLabels[i] && rowLabels[i].classList.toggle('muted', !p.audible);
+    rowLabels[i] && rowLabels[i].classList.toggle('solo', !!p.solo);
     updatePadFlags(i);
   });
 }
@@ -3451,7 +3540,8 @@ function onPress(el, fn){
 document.querySelectorAll('[data-act]').forEach(b=>onPress(b, ()=>transportAct(b.dataset.act)));
 function updateTransportUI(){
   document.querySelectorAll('[data-act="play"]').forEach(b=>{ b.classList.toggle('on', seq.playing); b.setAttribute('aria-pressed', String(seq.playing)); });
-  document.querySelectorAll('[data-act="rec"]').forEach(b=>{ b.classList.toggle('on', seq.rec); b.classList.toggle('blink', seq.rec && seq.playing && !reduceMotion); b.setAttribute('aria-pressed', String(seq.rec)); });
+  // REC: ARMADO (esperando la cuenta previa) → GRABANDO (con el patrón sonando)
+  document.querySelectorAll('[data-act="rec"]').forEach(b=>{ b.classList.toggle('on', seq.rec && seq.playing); b.classList.toggle('armed-rec', seq.rec && !seq.playing); b.classList.toggle('blink', seq.rec && !reduceMotion); b.setAttribute('aria-pressed', String(seq.rec)); });
   document.querySelectorAll('[data-act="stop"]').forEach(b=>b.classList.toggle('on', !seq.playing));
   toggleBtn($('#loopBtn'), seq.loop); toggleBtn($('#metroBtn'), seq.metro); toggleBtn($('#dkMet'), seq.metro);
   updateOLED(); updLoopUI(); updBanksUI(); updDockPos(); markDirty();
@@ -3606,17 +3696,17 @@ let tdL=null, tdR=null, tdS=null; const lvl=[0,0], hold=[0,0], holdT=[0,0];
 function peakOf(a){ let m=0; for(let i=0;i<a.length;i++){ const v=Math.abs(a[i]); if(v>m) m=v; } return m; }
 // Colores de los segmentos precalculados: antes se creaban 44 cadenas `rgb(...)` por fotograma
 const METER_COL=[[56,242,122],[255,177,59],[255,59,59]].map(c=>({ on:`rgb(${c})`, off:`rgba(${c},.1)` }));
-let meterIdle=0, masterVis=true;
+let meterIdle=0, masterVis=true, meterT=0;
 function drawMeters(){
   if(!tdL){ tdL=new Float32Array(A.anL.fftSize); tdR=new Float32Array(A.anR.fftSize); }
   A.anL.getFloatTimeDomainData(tdL); A.anR.getFloatTimeDomainData(tdR);
-  const now=performance.now(), pk=[peakOf(tdL), peakOf(tdR)];
+  const now=performance.now(), pk=[peakOf(tdL), peakOf(tdR)], fall=Math.pow(.86, clamp((now-(meterT||now-16.7))/16.7,.25,4)); meterT=now;
   // En silencio total, después de dejar los medidores en cero, no se vuelve a pintar
   if(pk[0]<1e-5 && pk[1]<1e-5 && lvl[0]<1e-4 && lvl[1]<1e-4 && hold[0]===0 && hold[1]===0){ if(++meterIdle>3) return false; } else meterIdle=0;
   const { w, h, dpr }=fitCanvas(meterCv), g=meterCv.getContext('2d'); g.clearRect(0,0,w,h);
   const N=22, pad=3*dpr, colW=(w-pad*3)/2, segH=(h-pad*2)/N;
   for(let c=0;c<2;c++){
-    lvl[c]=Math.max(pk[c], lvl[c]*.86);
+    lvl[c]=Math.max(pk[c], lvl[c]*fall);
     const db=20*Math.log10(lvl[c]+1e-9), n=clamp((db+48)/48,0,1), lit=Math.round(n*N);
     if(n>=hold[c] || now-holdT[c]>900){ hold[c]=n; holdT[c]=now; } else if(now-holdT[c]>600) hold[c]=Math.max(n, hold[c]-.02);
     const hs=Math.round(hold[c]*N)-1;
@@ -4080,8 +4170,10 @@ document.getElementById('chordMemBtn').addEventListener('click', ()=>{
 let lastGR=-1;
 // Latido de la cabecera: se enciende en cada negra que suena (Web Animations: sin forzar layout)
 const Beat = {
-  led:document.getElementById('beatI'), path:document.getElementById('beatPath'),
+  led:document.getElementById('beatI'), path:document.getElementById('beatPath'), plays:null,
   hit(acc){
+    if(!reduceMotion){ if(!this.plays) this.plays=[...document.querySelectorAll('[data-act="play"] > .led')];
+      this.plays.forEach(l=>l.animate && l.animate([{ transform:'scale(1.7)' },{ transform:'scale(1)' }], { duration:acc?260:170, easing:'ease-out' })); }
     if(this.led && this.led.animate) this.led.animate([{ opacity:1 },{ opacity:0 }], { duration:acc?340:210, easing:'cubic-bezier(.2,.7,.3,1)' });
     if(!reduceMotion && this.path && this.path.animate)
       this.path.animate([{ strokeDashoffset:80, opacity:1 },{ strokeDashoffset:0, opacity:1, offset:.55 },{ strokeDashoffset:0, opacity:.45 }], { duration:acc?560:400, easing:'ease-out' });
@@ -4379,7 +4471,8 @@ function updateSesFrame(){
     const stab=TIMING.stable && outStamp(), base=stab ? TIMING.lead+.0015 : (ctx.baseLatency||0)+(ctx.outputLatency||0);
     const ms=Math.round((base+(FX.comp.on && !A.compW ? .006 : 0))*1000);
     const el=$('#latInfo');
-    if(ms>0){ el.innerHTML = ms>=80 ? `Latencia: <b>${ms} ms</b> (alta; con audífonos Bluetooth es normal, usa cable)` : `Latencia: <b>${ms} ms</b>`+(stab?' estable':'');
+    const html = ms>=80 ? `Latencia: <b>${ms} ms</b> (alta; con audífonos Bluetooth es normal, usa cable)` : `Latencia: <b>${ms} ms</b>`+(stab?' estable':'');
+    if(ms>0 && el._h!==html){ el._h=html; el.innerHTML=html;
       el.classList.toggle('warn', ms>=80); el.title = FX.comp.on && !A.compW ? 'El compresor general suma unos 6 ms; apágalo si buscas la mínima latencia' : ''; }
   }
 }
@@ -4961,7 +5054,11 @@ function buildSynthGraph(){
   S.drive=fxDrive(); S.lofi=fxLofi(); S.chorus=fxChorus(); S.phaser=fxPhaser(); S.rot=fxRotary(); S.tremFx=fxTrem(); S.delay=fxPingPong();
   S.trem=ctx.createGain(); S.apan=ctx.createStereoPanner(); S.pump=ctx.createGain(); S.pan=ctx.createStereoPanner(); S.vol=ctx.createGain(); S.rev=ctx.createGain();
   S.bus.connect(S.drive.in); S.drive.out.connect(S.lofi.in); S.lofi.out.connect(S.chorus.in); S.chorus.out.connect(S.phaser.in);
-  S.phaser.out.connect(S.rot.in); S.rot.out.connect(S.tremFx.in); S.tremFx.out.connect(S.delay.in); S.delay.out.connect(S.trem); S.trem.connect(S.apan); S.apan.connect(S.pump); S.pump.connect(S.pan); S.pan.connect(S.vol);
+  S.phaser.out.connect(S.rot.in); S.rot.out.connect(S.tremFx.in); S.tremFx.out.connect(S.delay.in); S.delay.out.connect(S.trem); S.trem.connect(S.apan); S.apan.connect(S.pump);
+  // Presencia: fuera los infrasonidos que solo gastan margen (24 Hz) y +1,2 dB anchos en 2,8 kHz para que el sinte se oiga claro
+  S.hp=ctx.createBiquadFilter(); S.hp.type='highpass'; S.hp.frequency.value=24; S.hp.Q.value=0;
+  S.pres=ctx.createBiquadFilter(); S.pres.type='peaking'; S.pres.frequency.value=2800; S.pres.Q.value=.8; S.pres.gain.value=1.2;
+  S.pump.connect(S.hp); S.hp.connect(S.pres); S.pres.connect(S.pan); S.pan.connect(S.vol);
   S.vol.connect(A.masterIn); S.vol.connect(S.rev); S.rev.connect(A.revIn);
   // Modulación
   const bend=makeConst(0); S.bend=bend.node; S.bendP=bend.param;
@@ -6362,11 +6459,14 @@ const Project = {
     if(projStale){ staleWarn(); return false; }
     if(Date.now()-this.failT<30000) return false;      // tras un fallo se reintenta cada 30 s (no en cada cambio)
     let json; try{ const s=this.snapshot(); s.savedAt=Date.now(); json=JSON.stringify(s); }catch(e){ console.warn(e); return false; }
-    IDB.put('project', json);
+    const idb=IDB.put('project', json);
     if(store.set(this.KEY, json)){ projDirty=false; this.warned=false; ownProject(); return true; }
-    this.failT=Date.now();
-    if(!this.warned){ this.warned=true; flashMsg('No se pudo guardar en este navegador (almacenamiento lleno): usa PROYECTO → GUARDAR ARCHIVO'); }
-    return false;
+    // localStorage lleno (p. ej. tomas muy largas): basta con IndexedDB. La copia vieja de localStorage se vacía
+    // para que al abrir gane siempre la más nueva; solo se avisa si IndexedDB también falla.
+    store.set(this.KEY, ''); projDirty=false; ownProject();
+    idb.then(ok=>{ if(ok!=null){ this.warned=false; return; } projDirty=true; this.failT=Date.now();
+      if(!this.warned){ this.warned=true; flashMsg('No se pudo guardar en este navegador (almacenamiento lleno): usa PROYECTO → GUARDAR ARCHIVO'); } });
+    return true;
   },
   // Aplica un proyecto; devuelve los pads que esperan su sample propio
   apply(d){
