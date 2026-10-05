@@ -83,7 +83,7 @@ El primer commit de la rama es el archivo original tal como llegó, así que cad
 - **M2, M10** – Nuevo bus visual: entrega sin crear arrays, descarta solo lo viejo y nunca dibuja eventos de una pestaña oculta. STOP lleva a cada animación a su escena de reposo con transición.
 - **M4–M5, M11, B2, B4, B7** – Regla y velocity alineados; DUPLICAR conserva la duración real; duración cacheada; eventos guardados sin campos repetidos (−45 % en el proyecto); CONVERTIR A PATRÓN quita el swing y pasa al compás siguiente; la rueda solo cambia la velocity si hay un golpe debajo del puntero.
 - **M6** – Cada variante usa el generador que le corresponde por nombre (`variantGen`), las «808 …» usan la 808, los ★ solo marcan la variante (con ★ visible en la lista) y el cambio se deshace con Ctrl+Z.
-- **M7, M8, M12** – Botones con estados visibles: ON (texto blanco y halo), PLAYING (verde), RECORDING (rojo con brillo), ARMED (borde rojo y LED intermitente; GRABAR TOQUE en ámbar), DISABLED (sin LED ni brillo), MUTE (rojo), SOLO (amarillo, también en las filas). Teléfonos: dos líneas en los botones de arriba; controles del Drum Roll de ≥ 32 px. Barra del Drum Roll agrupada en REPRODUCIR · REJILLA · RECORTE · EDICIÓN · EXPORTAR (mismos IDs y funciones) y LOOP con LED.
+- **M7, M8, M12** – Botones con estados visibles: ON (texto blanco y halo), PLAYING (verde), RECORDING (rojo con brillo), ARMED (borde rojo y LED intermitente; GRABAR TOQUE en ámbar), DISABLED (sin LED ni brillo), MUTE (rojo), SOLO (amarillo, también en las filas). Teléfonos: dos líneas en los botones de arriba. Drum Roll: grupos de 32 px de alto, selects y campos de 26 px y deslizadores de 24 px (antes medían de 13 a 19 px). Barra del Drum Roll agrupada en REPRODUCIR · REJILLA · RECORTE · EDICIÓN · EXPORTAR (mismos IDs y funciones) y LOOP con LED.
 - **M13** – Si localStorage se llena, basta con IndexedDB (se avisa solo si fallan los dos).
 - **B1, B3, B5, B8** – Biblioteca sincronizada tras restaurar, latencia escrita solo si cambia, caída de medidores por tiempo, ayuda actualizada.
 
@@ -134,7 +134,66 @@ Las dos pantallas mantienen su sitio y su tamaño. Todo se dibuja con Canvas 2D 
 
 ## 7. Pruebas
 
-Ver la tabla del PR: las 50 pruebas de la lista se ejecutan sobre la página real con `verify50` (no incluido en el archivo final).
+Las 50 comprobaciones de la lista se ejecutaron sobre la página real: Chromium headless con el audio funcionando (Playwright) y una prueba de resistencia de 3 minutos con patrón y toma en loop. Para leer el estado interno se usó una copia con un gancho de prueba (`window.__L`) que **no** forma parte del archivo entregado. Los tiempos se miden en los `start()` programados y las frecuencias en la señal real (cruces por cero con interpolación), no en los valores de los parámetros.
+
+| # | Área | Prueba | Resultado | Medición |
+|---|---|---|---|---|
+| 1 | Audio | tocar pad | ✅ | voz creada en el pad 1 |
+| 2 | Audio | varios pads | ✅ | voces simultáneas: 9 |
+| 3 | Audio | golpes rápidos (40 en 0,5 s) | ✅ | máx. voces del pad 8, al final 0 |
+| 4 | Audio | acordes | ✅ | voces del acorde: 4 |
+| 5 | Audio | sustain | ✅ | con pedal 4 sostenidas, al soltar 0 |
+| 6 | Audio | pitch bend | ✅ | 439,9 Hz → 493,9 Hz (+2,00 st) → 440,1 Hz |
+| 7 | Audio | mod wheel | ✅ | vibrato 55,0 cents |
+| 8 | Secuenciador | Play | ✅ | pasos programados: 10 |
+| 9 | Secuenciador | Stop | ✅ | sin golpes programados pendientes (0) |
+| 10 | Secuenciador | cambiar BPM | ✅ | 6 corcheas a 300,00 ms (esperado 300,00 ms a 100 BPM) |
+| 11 | Secuenciador | swing | ✅ | largo 168,0 ms / corto 132,0 ms (swing 18,0 ms) |
+| 12 | Secuenciador | patrones (A→B al compás) | ✅ | en cola 1, suena 1 |
+| 13 | Secuenciador | cadena | ✅ | patrones que sonaron: B,A |
+| 14 | Secuenciador | REC en el patrón | ✅ | los golpes se escribieron en la fila del pad 10 |
+| 15 | Live take | grabar toma | ✅ | 8 golpes capturados |
+| 16 | Live take | stop de la toma | ✅ | tomas: 1 |
+| 17 | Live take | reproducir toma | ✅ | 8 golpes programados |
+| 18 | Live take | overdub | ✅ | 8 → 9 golpes, la toma sonaba: true |
+| 19 | Live take | editar (cuantizar/deshacer) | ✅ | todos los golpes en la rejilla 1/16 con swing |
+| 20 | Live take | guardar | ✅ | tomas en el proyecto guardado: 1 |
+| 21 | Drum Roll | mover nota | ✅ | Δt 409 ms, pad 3→4 |
+| 22 | Drum Roll | velocity (carril) | ✅ | velocity 0,52 |
+| 23 | Drum Roll | zoom (anclado) | ✅ | ×2,00, el instante bajo el puntero se mueve 0,0 px |
+| 24 | Drum Roll | snap | ✅ | un golpe en 3,3 semicorcheas cae en la 4.ª (con swing) |
+| 25 | Drum Roll | playhead (loop) | ✅ | la toma sigue sonando en loop |
+| 26 | Drum Roll | follow | ✅ | la vista se movió de 0 a 586 px |
+| 27 | Sinte | cambiar preset (con notas) | ✅ | 71 presets cambiados con notas sonando: 0 errores y 0 notas retenidas (a los 2,5 s, 2 voces seguían en su cola de release) |
+| 28 | Sinte | tocar acordes | ✅ | voces en curso 12 |
+| 29 | Sinte | muchas voces (44 teclas) | ✅ | vivas 16 (máx. 16), al final 0 |
+| 30 | Sinte | efectos del sinte (todos) | ✅ | pico 0,491 |
+| 31 | Visuales | IDLE | ✅ | ORBIT: dock |
+| 32 | Visuales | actividad | ✅ | ORBIT: fly |
+| 33 | Visuales | kick → motor | ✅ | empuje 1,00 |
+| 34 | Visuales | snare → disparo | ✅ | láseres activos 1 |
+| 35 | Visuales | hat → partículas | ✅ | partículas 54 → 56 en el mismo instante del golpe |
+| 36 | Visuales | crash → explosión | ✅ | destello 0,30, ondas 4 |
+| 37 | Visuales | acorde → boost | ✅ | boost 1,00 |
+| 38 | Visuales | pitch bend → carril | ✅ | objetivo lateral -0,7 |
+| 39 | Visuales | mod wheel → neón | ✅ | neón 0,9 |
+| 40 | Visuales | stop → vuelve a la estación | ✅ | return → dock |
+| 41 | Responsive | PC 1920×1080 | ✅ | pads 122px, teclas 48px |
+| 42 | Responsive | laptop 1366×768 | ✅ | pads 122px, teclas 48px |
+| 43 | Responsive | tablet 820×1180 | ✅ | pads 182px, teclas 28px |
+| 44 | Responsive | teléfono 390×844 | ✅ | pads 79px, teclas 38px |
+| 45 | Estabilidad | errores de consola | ✅ | ninguno |
+| 46 | Estabilidad | notas colgadas | ✅ | voces sinte 0, pads 0 |
+| 47 | Estabilidad | clipping (salida ≥ 0 dBFS) | ✅ | pico 0,918 (-0,7 dBFS), muestras ≥0 dBFS: 0 |
+| 48 | Estabilidad | memoria (heap tras GC) | ✅ | 8,4 → 8,7 MB en 180 s |
+| 49 | Estabilidad | listeners duplicados | ✅ | window+document: 43 → 43 |
+| 50 | Estabilidad | rendimiento tras 180 s | ✅ | animaciones 0,32 ms por fotograma de media (máx. 5,8); colas visuales 5 / 3; voces de la toma en loop 24; partículas 63 |
+
+**50/50 superadas.** Después del último ajuste (deslizadores del Drum Roll a 24 px) se repitió todo: 50/50 con 30 s de resistencia.
+
+Además:
+- **Recorrido de botones**: se pulsaron los 132 botones visibles uno por uno, con 0 errores.
+- **Desbordes** en 6 tamaños (1920×1080, 1366×768, 820×1180, 844×390, 390×844 y 360×740): ningún elemento se sale de la pantalla ni corta su texto. En tablet y teléfono no hay objetivos táctiles de menos de 24 px. En escritorio solo queda la etiqueta de latencia (19 px de alto), que con ratón es suficiente.
 
 ## Límites honestos
 
