@@ -32,17 +32,24 @@ const P = {
 	shadowType: qs.get( 'shadowType' ) || 'pcf',
 	csm: qs.get( 'csm' ) === '1',
 	tonemap: qs.get( 'tonemap' ) || 'aces',
+	exposure: parseFloat( qs.get( 'exposure' ) || '0.32' ),
 	instances: parseInt( qs.get( 'instances' ) || '1500', 10 ),
 	frames: parseInt( qs.get( 'frames' ) || '90', 10 ),
 	w: parseInt( qs.get( 'w' ) || '960', 10 ),
 	h: parseInt( qs.get( 'h' ) || '540', 10 ),
 	lose: qs.get( 'lose' ) === '1',
-	noSwizzleShim: qs.get( 'noSwizzleShim' ) === '1'
+	noSwizzleShim: qs.get( 'noSwizzleShim' ) === '1',
+	// offscreen=1: renderiza a un RenderTarget (sin presentar en el canvas) y al final vuelca los
+	// píxeles a un <canvas> 2D. Necesario para WebGPU en Chromium headless sin GPU (ver notas).
+	offscreen: qs.get( 'offscreen' ) === '1',
+	// lista separada por comas de piezas a omitir (para aislar fallos):
+	// sky,env,fog,hemi,sun,shadows,ground,ramp,fence,neon,orb,inst,batched,lod,skinned
+	skip: new Set( ( qs.get( 'skip' ) || '' ).split( ',' ).filter( Boolean ) )
 };
 
 const R = window.__SMOKE__ = {
 	status: 'loading',
-	params: P,
+	params: { ...P, skip: [ ...P.skip ] },
 	errors: [],
 	threeMessages: [],
 	timings: {}
@@ -286,6 +293,10 @@ function createSkinnedTube() {
 // Post-procesado
 // ---------------------------------------------------------------------------
 
+// El umbral del bloom se compara con el color HDR lineal ANTES de la exposición/tone mapping.
+// SkyMesh produce radiancias de varias unidades: con umbral < ~5 todo el cielo "florece".
+const BLOOM_THRESHOLD = 6;
+
 function buildPipeline( renderer, scene, camera, mode ) {
 
 	const pipeline = new THREE.RenderPipeline( renderer );
@@ -302,7 +313,7 @@ function buildPipeline( renderer, scene, camera, mode ) {
 
 		const scenePass = pass( scene, camera );
 		const sceneColor = scenePass.getTextureNode( 'output' );
-		const bloomPass = bloom( sceneColor, 0.8, 0.3, 0.9 ); // (input, strength, radius, threshold)
+		const bloomPass = bloom( sceneColor, 0.8, 0.3, BLOOM_THRESHOLD ); // (input, strength, radius, threshold)
 		pipeline.outputNode = sceneColor.add( bloomPass );
 		info.bloom = bloomPass;
 		return { pipeline, info };
@@ -315,7 +326,7 @@ function buildPipeline( renderer, scene, camera, mode ) {
 		pipeline.outputColorTransform = false;
 		const scenePass = pass( scene, camera );
 		const sceneColor = scenePass.getTextureNode( 'output' );
-		const withBloom = sceneColor.add( bloom( sceneColor, 0.8, 0.3, 0.9 ) );
+		const withBloom = sceneColor.add( bloom( sceneColor, 0.8, 0.3, BLOOM_THRESHOLD ) );
 		pipeline.outputNode = fxaa( renderOutput( withBloom ) );
 		return { pipeline, info };
 
@@ -326,7 +337,7 @@ function buildPipeline( renderer, scene, camera, mode ) {
 		// SMAA se aplica ANTES de la conversión a sRGB (la hace RenderPipeline)
 		const scenePass = pass( scene, camera );
 		const sceneColor = scenePass.getTextureNode( 'output' );
-		pipeline.outputNode = smaa( sceneColor.add( bloom( sceneColor, 0.8, 0.3, 0.9 ) ) );
+		pipeline.outputNode = smaa( sceneColor.add( bloom( sceneColor, 0.8, 0.3, BLOOM_THRESHOLD ) ) );
 		return { pipeline, info };
 
 	}
@@ -338,7 +349,7 @@ function buildPipeline( renderer, scene, camera, mode ) {
 		scenePass.setMRT( mrt( { output, velocity } ) );
 		const sceneColor = scenePass.getTextureNode( 'output' );
 		const traaPass = traa( sceneColor, scenePass.getTextureNode( 'depth' ), scenePass.getTextureNode( 'velocity' ), camera );
-		pipeline.outputNode = traaPass.add( bloom( traaPass, 0.8, 0.3, 0.9 ) );
+		pipeline.outputNode = traaPass.add( bloom( traaPass, 0.8, 0.3, BLOOM_THRESHOLD ) );
 		return { pipeline, info };
 
 	}
@@ -366,7 +377,7 @@ function buildPipeline( renderer, scene, camera, mode ) {
 
 		}
 
-		pipeline.outputNode = color.add( bloom( color, 0.8, 0.3, 0.9 ) );
+		pipeline.outputNode = color.add( bloom( color, 0.8, 0.3, BLOOM_THRESHOLD ) );
 		return { pipeline, info };
 
 	}
@@ -457,15 +468,17 @@ async function main() {
 	}
 
 	// --- render / color ----------------------------------------------------
-	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.enabled = ! P.skip.has( 'shadows' );
 	renderer.shadowMap.type = { pcf: THREE.PCFShadowMap, vsm: THREE.VSMShadowMap, basic: THREE.BasicShadowMap }[ P.shadowType ] ?? THREE.PCFShadowMap;
 	renderer.toneMapping = { aces: THREE.ACESFilmicToneMapping, agx: THREE.AgXToneMapping, neutral: THREE.NeutralToneMapping }[ P.tonemap ] ?? THREE.ACESFilmicToneMapping;
-	renderer.toneMappingExposure = 0.55;
+	renderer.toneMappingExposure = P.exposure; // SkyMesh emite radiancia alta: exposición baja (0.1–0.5)
 	// renderer.outputColorSpace = THREE.SRGBColorSpace; (valor por defecto)
 
 	// --- escena ------------------------------------------------------------
 	const scene = new THREE.Scene();
-	scene.fog = new THREE.Fog( 0xa9bdd0, 35, 140 ); // Fog/FogExp2 se convierten a nodos automáticamente
+	scene.background = new THREE.Color( 0x8fa9c4 ); // visible solo si se omite el cielo
+	if ( ! P.skip.has( 'fog' ) ) scene.fog = new THREE.Fog( 0x9fb4c8, 60, 260 ); // Fog/FogExp2 se convierten a nodos automáticamente
+	const add = ( name, object ) => { if ( ! P.skip.has( name ) ) scene.add( object ); };
 
 	const camera = new THREE.PerspectiveCamera( 55, P.w / P.h, 0.1, 2000 );
 	camera.position.set( 13, 6.5, 17 );
@@ -482,23 +495,28 @@ async function main() {
 	const sunDir = new THREE.Vector3().setFromSphericalCoords( 1, THREE.MathUtils.degToRad( 90 - 38 ), THREE.MathUtils.degToRad( 135 ) );
 	sky.sunPosition.value.copy( sunDir );
 
-	const tEnv = performance.now();
-	const pmrem = new THREE.PMREMGenerator( renderer ); // la de 'three/webgpu', NO la de 'three'
-	const envScene = new THREE.Scene();
-	sky.showSunDisc.value = 0; // sin disco solar en el env map (evita "fireflies")
-	envScene.add( sky );
-	const envRT = pmrem.fromScene( envScene, 0, 0.1, 3000 );
-	sky.showSunDisc.value = 1;
-	scene.add( sky ); // un Object3D solo puede tener un padre: se mueve de envScene a scene
-	scene.environment = envRT.texture;
-	scene.environmentIntensity = 0.6;
-	R.timings.pmremFromSceneMs = Math.round( performance.now() - tEnv );
+	if ( ! P.skip.has( 'env' ) ) {
+
+		const tEnv = performance.now();
+		const pmrem = new THREE.PMREMGenerator( renderer ); // la de 'three/webgpu', NO la de 'three'
+		const envScene = new THREE.Scene();
+		sky.showSunDisc.value = 0; // sin disco solar en el env map (evita "fireflies")
+		envScene.add( sky );
+		const envRT = pmrem.fromScene( envScene, 0, 0.1, 3000 );
+		sky.showSunDisc.value = 1;
+		scene.environment = envRT.texture;
+		scene.environmentIntensity = 0.35;
+		R.timings.pmremFromSceneMs = Math.round( performance.now() - tEnv );
+
+	}
+
+	add( 'sky', sky ); // un Object3D solo puede tener un padre: se mueve de envScene a scene
 
 	// Luces
 	const hemi = new THREE.HemisphereLight( 0xcfe3ff, 0x4a4036, 0.6 );
-	scene.add( hemi );
+	add( 'hemi', hemi );
 
-	const sun = new THREE.DirectionalLight( 0xfff1dd, 4.0 );
+	const sun = new THREE.DirectionalLight( 0xfff1dd, 6.0 );
 	sun.position.copy( sunDir ).multiplyScalar( 40 );
 	sun.castShadow = true;
 	sun.shadow.mapSize.set( 2048, 2048 );
@@ -507,8 +525,8 @@ async function main() {
 	sun.shadow.radius = 3; // PCF: radio del disco Vogel (5 muestras)
 	const sc = sun.shadow.camera;
 	sc.left = - 22; sc.right = 22; sc.top = 22; sc.bottom = - 22; sc.near = 1; sc.far = 100;
-	scene.add( sun );
-	scene.add( sun.target );
+	add( 'sun', sun );
+	if ( ! P.skip.has( 'sun' ) ) scene.add( sun.target );
 
 	if ( P.csm ) {
 
@@ -526,7 +544,7 @@ async function main() {
 	);
 	ground.rotation.x = - Math.PI / 2;
 	ground.receiveShadow = true;
-	scene.add( ground );
+	add( 'ground', ground );
 
 	// Rampa/bloque con MeshPhysicalMaterial (clearcoat)
 	const ramp = new THREE.Mesh(
@@ -535,7 +553,7 @@ async function main() {
 	);
 	ramp.position.set( - 4, 0.6, - 2 );
 	ramp.castShadow = ramp.receiveShadow = true;
-	scene.add( ramp );
+	add( 'ramp', ramp );
 
 	// Valla con alphaTest (sombra recortada por alpha)
 	const fence = new THREE.Mesh(
@@ -544,15 +562,15 @@ async function main() {
 	);
 	fence.position.set( 0, 1.5, - 7 );
 	fence.castShadow = fence.receiveShadow = true;
-	scene.add( fence );
+	add( 'fence', fence );
 
 	// Letrero emisivo (HDR > 1 => bloom)
 	const neon = new THREE.Mesh(
 		new THREE.BoxGeometry( 3, 0.35, 0.15 ),
-		new THREE.MeshStandardMaterial( { color: 0x000000, emissive: 0xff2a6d, emissiveIntensity: 8 } )
+		new THREE.MeshStandardMaterial( { color: 0x000000, emissive: 0xff2a6d, emissiveIntensity: 40 } )
 	);
 	neon.position.set( 0, 3.4, - 6.9 );
-	scene.add( neon );
+	add( 'neon', neon );
 
 	// Material de nodos TSL (MeshStandardNodeMaterial)
 	const nodeMat = new THREE.MeshStandardNodeMaterial( { roughness: 0.3, metalness: 0.2 } );
@@ -560,7 +578,7 @@ async function main() {
 	const orb = new THREE.Mesh( new THREE.SphereGeometry( 0.8, 48, 24 ), nodeMat );
 	orb.position.set( 4, 0.8, 2.5 );
 	orb.castShadow = true;
-	scene.add( orb );
+	add( 'orb', orb );
 
 	// InstancedMesh dinámico (conos/bolardos) con DataTexture
 	const count = P.instances;
@@ -577,8 +595,8 @@ async function main() {
 	for ( let i = 0; i < count; i ++ ) {
 
 		const x = ( i % side ) - side / 2;
-		const z = Math.floor( i / side ) - side / 2;
-		const p = new THREE.Vector3( x * 1.4 + 0.3, 0.4, z * 1.4 + 18 );
+		const z = Math.floor( i / side );
+		const p = new THREE.Vector3( x * 1.6, 0.4, - 12 - z * 1.6 ); // campo de bolardos detrás de la valla
 		basePos.push( p );
 		m4.compose( p, q, s1 );
 		inst.setMatrixAt( i, m4 );
@@ -588,7 +606,7 @@ async function main() {
 
 	inst.instanceMatrix.needsUpdate = true;
 	inst.computeBoundingSphere(); // sin esto el culling usa una esfera calculada una sola vez
-	scene.add( inst );
+	add( 'inst', inst );
 	R.instancingPath = ( count * 64 <= R.uniformBufferLimit ) ? 'uniform-buffer' : 'instanced-attribute';
 
 	// BatchedMesh: dos geometrías, varias instancias, 1 material
@@ -605,7 +623,7 @@ async function main() {
 	}
 
 	batched.castShadow = batched.receiveShadow = true;
-	scene.add( batched );
+	add( 'batched', batched );
 
 	// LOD (se actualiza solo si lod.autoUpdate === true, por defecto)
 	const lod = new THREE.LOD();
@@ -615,12 +633,12 @@ async function main() {
 	lod.addLevel( new THREE.Mesh( new THREE.IcosahedronGeometry( 0.7, 0 ), lodMat ), 40 );
 	lod.position.set( 7, 0.7, - 3 );
 	lod.traverse( ( o ) => { if ( o.isMesh ) o.castShadow = true; } );
-	scene.add( lod );
+	add( 'lod', lod );
 
 	// SkinnedMesh animado
 	const { mesh: skinned, mixer } = createSkinnedTube();
 	skinned.position.set( 0, 1.4, 0 );
-	scene.add( skinned );
+	add( 'skinned', skinned );
 
 	// --- post-procesado ------------------------------------------------------
 	const { pipeline } = buildPipeline( renderer, scene, camera, P.post );
@@ -655,10 +673,15 @@ async function main() {
 
 	};
 
+	// Modo offscreen: la salida final del pipeline va a un RenderTarget en vez de al canvas
+	const offscreenRT = P.offscreen ? new THREE.RenderTarget( P.w, P.h, { type: THREE.UnsignedByteType, depthBuffer: false } ) : null;
+
 	const draw = () => {
 
 		const t0 = performance.now();
+		if ( offscreenRT ) renderer.setRenderTarget( offscreenRT );
 		pipeline.render(); // con RenderPipeline se llama a pipeline.render(), NO a renderer.render()
+		if ( offscreenRT ) renderer.setRenderTarget( null );
 		return performance.now() - t0;
 
 	};
@@ -683,7 +706,22 @@ async function main() {
 				intervals.push( timestamp - lastStamp );
 				lastStamp = timestamp;
 				if ( frame % 15 === 0 ) setHud( `backend: ${ R.backend }\npost: ${ P.post }\nframe ${ frame }\ncpu render ${ cpu.toFixed( 1 ) } ms` );
-				if ( cpuTimes.length >= P.frames ) { renderer.setAnimationLoop( null ); resolve(); }
+				if ( cpuTimes.length >= P.frames ) {
+
+					// renderer.info se resetea al inicio de cada frame del bucle interno (info.autoReset):
+					// hay que leerlo justo después de renderizar, dentro del mismo callback.
+					R.info = {
+						frame: renderer.info.frame,
+						renderCallsTotal: renderer.info.render.calls,
+						renderFrameCalls: renderer.info.render.frameCalls,
+						drawCalls: renderer.info.render.drawCalls,
+						triangles: renderer.info.render.triangles,
+						memory: { ...renderer.info.memory }
+					};
+					renderer.setAnimationLoop( null );
+					resolve();
+
+				}
 
 			}
 
@@ -699,8 +737,32 @@ async function main() {
 	const syncTimes = [];
 	const gpuSync = async () => {
 
-		if ( backend.isWebGPUBackend ) await backend.device.queue.onSubmittedWorkDone();
-		else backend.gl.finish();
+		if ( backend.isWebGPUBackend ) {
+
+			await backend.device.queue.onSubmittedWorkDone();
+
+		} else {
+
+			// gl.finish() no bloquea de forma fiable en Chrome: usamos un fence y sondeo
+			const gl = backend.gl;
+			const sync = gl.fenceSync( gl.SYNC_GPU_COMMANDS_COMPLETE, 0 );
+			gl.flush();
+			await new Promise( ( resolve ) => {
+
+				const poll = () => {
+
+					const s = gl.clientWaitSync( sync, 0, 0 );
+					if ( s === gl.TIMEOUT_EXPIRED ) { setTimeout( poll, 1 ); return; }
+					gl.deleteSync( sync );
+					resolve();
+
+				};
+
+				poll();
+
+			} );
+
+		}
 
 	};
 
@@ -717,19 +779,20 @@ async function main() {
 
 	R.timings.syncedFrame = stats( syncTimes );
 
-	// renderer.info (WebGPURenderer): drawCalls/triangles se resetean cada frame del bucle interno
-	R.info = {
-		frame: renderer.info.frame,
-		renderCallsTotal: renderer.info.render.calls,
-		renderFrameCalls: renderer.info.render.frameCalls,
-		drawCalls: renderer.info.render.drawCalls,
-		triangles: renderer.info.render.triangles,
-		memory: { ...renderer.info.memory }
-	};
+	if ( offscreenRT ) {
 
-	// Dejamos el bucle activo para la captura
-	renderer.setAnimationLoop( ( timestamp ) => { update( timestamp ); draw(); } );
-	await nextFrame(); await nextFrame();
+		// Volcado del RenderTarget a un canvas 2D (para la captura de pantalla)
+		draw();
+		const px = await renderer.readRenderTargetPixelsAsync( offscreenRT, 0, 0, P.w, P.h );
+		blitToCanvas2D( px, P.w, P.h, backend.isWebGLBackend === true );
+
+	} else {
+
+		// Dejamos el bucle activo para la captura
+		renderer.setAnimationLoop( ( timestamp ) => { update( timestamp ); draw(); } );
+		await nextFrame(); await nextFrame();
+
+	}
 
 	if ( P.lose ) {
 
@@ -741,6 +804,27 @@ async function main() {
 	setHud( `backend: ${ R.backend }${ R.compatibilityMode ? ' (compat)' : '' }\npost: ${ P.post }  aa: ${ P.aa ? 'MSAA' : 'no' }\n` +
 		`render cpu ~${ R.timings.loopCpu.median } ms · gpu-sync ~${ R.timings.syncedFrame.median } ms\n` +
 		`drawCalls ${ R.info.drawCalls } · tris ${ R.info.triangles }` );
+
+}
+
+function blitToCanvas2D( px, w, h, flipY ) {
+
+	// WebGPU alinea cada fila de la lectura a 256 bytes; WebGL devuelve las filas de abajo arriba.
+	const rowBytes = h > 1 ? ( px.length - w * 4 ) / ( h - 1 ) : w * 4;
+	const out = new Uint8ClampedArray( w * h * 4 );
+	for ( let y = 0; y < h; y ++ ) {
+
+		const srcY = flipY ? h - 1 - y : y;
+		out.set( px.subarray( srcY * rowBytes, srcY * rowBytes + w * 4 ), y * w * 4 );
+
+	}
+
+	for ( let i = 3; i < out.length; i += 4 ) out[ i ] = 255;
+	const c = document.createElement( 'canvas' );
+	c.width = w; c.height = h;
+	c.style.cssText = 'position:fixed;left:0;top:0;';
+	c.getContext( '2d' ).putImageData( new ImageData( out, w, h ), 0, 0 );
+	document.body.appendChild( c );
 
 }
 

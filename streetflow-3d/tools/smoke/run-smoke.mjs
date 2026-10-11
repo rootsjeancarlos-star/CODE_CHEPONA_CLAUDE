@@ -55,6 +55,7 @@ const cases = [
 	{ name: 'b-shell-webgpu-flags', browser: 'shell-webgpu-flags', query: {} },
 	{ name: 'b-shell-webgpu-min', browser: 'shell-webgpu-min', query: {} },
 	{ name: 'b-shell-webgpu-min-forceWebGL', browser: 'shell-webgpu-min', query: { forceWebGL: 1 } },
+	{ name: 'b-shell-webgpu-min-noShim', browser: 'shell-webgpu-min', query: { noSwizzleShim: 1, frames: 10 } },
 	{ name: 'c-newheadless-default', browser: 'newheadless-default', query: {} },
 	{ name: 'c-newheadless-webgpu-min', browser: 'newheadless-webgpu-min', query: {} },
 	{ name: 'd-no-gpu', browser: 'no-gpu', query: {} }

@@ -44,6 +44,7 @@ export const DEFAULTS = {
   suspFreq: 8, //          Hz, frecuencia natural del sistema (masa total sobre 4 muelles)
   suspZeta: 1.0, //        razón de amortiguamiento (1 = crítico)
   suspMaxForce: 25000, //  N por rueda (tope)
+  dampMode: 0, //          1 = velocidad de compresión por diferencia de distancias del rayo; 0 = velocidad del punto
   contactTol: 0.004, //    m, holgura para considerar la rueda "en contacto" más allá de la longitud de reposo
   muLat: 0.9, //           coeficiente de agarre lateral (tope de la fuerza lateral = muLat·N)
   grip: 0.8, //            fracción [0..1] de la velocidad lateral que se anula por paso
@@ -52,11 +53,14 @@ export const DEFAULTS = {
   align: 1, //             1 = par de equilibrio/alineación activo; 0 = solo muelles
   alignFreq: 4, //         Hz, frecuencia del par de alineación con la normal media (en suelo)
   alignZeta: 1.0,
+  curvatureFF: 1, //       1 = el amortiguamiento de alineación usa la ω que exige la curvatura (rampas)
   airAlignFreq: 1.5, //    Hz, alineación suave en el aire (hacia la normal del suelo detectado o +Y)
   airAlignZeta: 1.0,
   tangentAtCom: 0, //      1 = aplica fricción lateral/rodadura a la altura del COM (truco anti-vuelco)
   riderCapsule: 1, //      1 = añade la cápsula del rider (densidad 0) como en ARCHITECTURE §7.3
   deckFriction: 0.3,
+  stickAccel: 0, //        m/s², "adherencia" extra hacia la superficie en suelo (asistencia; 0 = física pura)
+  qpSegments: 48, //       segmentos de la curva del quarter pipe (facetado de la trimesh)
   ollieHeight: 0.5, //     m, subida objetivo del COM en el escenario d
   carveRadius: 4, //       m, radio de giro objetivo en el escenario e
 }
@@ -228,8 +232,10 @@ class Board {
     }
     this.body.recomputeMassPropertiesFromColliders() // para que mass()/inercia sean válidas antes del primer step
     this.ray = new RAPIER.Ray(v3(), v3(0, -1, 0)) // reutilizado (se muta origin/dir)
+    this.invInertia = new RAPIER.SdpMatrix3(new Float32Array(6)) // destino propio (ver applyForces)
     this.steer = 0 // rad; eje delantero +steer, trasero −steer (ARCHITECTURE §7.3)
     this.lastTotalN = 0
+    this.rollWork = 0
   }
 
   get up() {
@@ -257,7 +263,9 @@ class Board {
     const rayDir = scl(up, -1)
     const com = body.worldCom()
     const invMass = body.invMass()
-    const invI = body.effectiveWorldInvInertia()
+    // ¡OJO! Sin `target`, effectiveWorldInvInertia() devuelve una matriz que ALIASA RAPIER.scratchBuffer y la
+    // siguiente llamada (velocityAtPoint, linvel...) la sobrescribe. Se pasa siempre una matriz propia.
+    const invI = body.effectiveWorldInvInertia(this.invInertia)
 
     // 1) Rayos
     let nContact = 0
@@ -277,6 +285,7 @@ class Board {
         undefined,
         body, // excluye el propio cuerpo (deck + cápsula)
       )
+      w.prevDist = w.contact ? w.dist : null // distancia del subpaso anterior (si había contacto)
       w.near = !!hit
       w.contact = false
       w.N = 0
@@ -300,6 +309,14 @@ class Board {
 
     // 2) Fuerzas por rueda
     let totalN = 0
+    // Asistencia opcional de adherencia: fuerza extra hacia la superficie (no hace trabajo si la tabla sigue la
+    // superficie). La parte que aporta a N no cuenta para la resistencia a la rodadura.
+    this.stickShare = 0
+    if (cfg.stickAccel > 0 && nContact >= 2) {
+      const nAvg = norm(nSum)
+      body.addForce(scl(nAvg, -cfg.mass * cfg.stickAccel), true) // en el COM: no genera par
+      this.stickShare = (cfg.mass * cfg.stickAccel) / nContact
+    }
     for (const w of this.wheels) {
       if (!w.contact) continue
       const n = w.normal
@@ -313,10 +330,17 @@ class Board {
       }
       // Muelle–amortiguador a lo largo de la normal
       const compression = Math.max(0, this.restLen - w.dist)
-      const vn = dot(vP, n) // < 0: acercándose al suelo
-      let fDamp = -this.c * vn
-      // Tope del amortiguador: no invertir la velocidad normal en un solo paso (evita el "rebote" al aterrizar)
-      const fDampMax = (mEff(n) * Math.abs(vn)) / dt
+      // Velocidad de compresión (> 0 comprimiendo).
+      //  dampMode = 0 (por defecto): velocidad del punto del sólido en el contacto proyectada en la normal de ESE
+      //    triángulo. Al seguir una curva es ≈ 0 porque la normal local ya está inclinada respecto a la tabla.
+      //  dampMode = 1: diferencia de distancias del rayo entre subpasos. Va medio paso retrasada porque Rapier
+      //    reparte las fuerzas en numSolverIterations sub-pasos internos (ver RAPIER_NOTES §8.3): al aterrizar
+      //    el amortiguador sigue "viendo" compresión cuando la tabla ya se ha parado → rebote. No recomendado.
+      const vn = dot(vP, n) // < 0: el punto se acerca al suelo
+      const xdot = cfg.dampMode === 1 && w.prevDist != null ? (w.prevDist - w.dist) / dt : -vn
+      let fDamp = this.c * xdot
+      // Tope del amortiguador: no invertir la velocidad de compresión en un solo paso (evita el rebote al aterrizar)
+      const fDampMax = (mEff(n) * Math.abs(xdot)) / dt
       fDamp = clamp(fDamp, -fDampMax, fDampMax)
       const N = clamp(this.k * compression + fDamp, 0, cfg.suspMaxForce)
       w.N = N
@@ -330,14 +354,16 @@ class Board {
       const tLat = norm(cross(n, tFwd))
       const vLat = dot(vP, tLat)
       const vFwd = dot(vP, tFwd)
+      w.vFwd = vFwd
       // Fricción lateral: anula una fracción de la velocidad lateral, limitada por muLat·N (derrape)
       const mLat = mEff(tLat)
       const fLat = clamp((-vLat * mLat * cfg.grip) / dt, -cfg.muLat * N, cfg.muLat * N)
       // Resistencia a la rodadura: Coulomb a velocidad normal; a baja velocidad, fuerza que lleva a 0 sin cambiar de signo
-      const fRollMax = cfg.crr * N
+      const fRollMax = cfg.crr * Math.max(0, N - this.stickShare)
       let fRoll
       if (Math.abs(vFwd) > cfg.vStop) fRoll = -Math.sign(vFwd) * fRollMax
       else fRoll = clamp((-vFwd * mEff(tFwd)) / dt, -fRollMax, fRollMax)
+      this.rollWork += Math.abs(fRoll * vFwd) * dt // energía disipada por la rodadura (J)
       const fT = add(scl(tLat, fLat), scl(tFwd, fRoll))
       // Punto de aplicación de las fuerzas tangentes: contacto (realista) o elevado a la altura del COM
       const pT = cfg.tangentAtCom ? add(p, scl(n, dot(sub(com, p), n))) : p
@@ -363,13 +389,67 @@ class Board {
       const s = len(axis)
       const ang = Math.atan2(s, dot(up, target))
       let tau = s > 1e-9 ? scl(axis, (kA * ang) / s) : v3()
-      // Amortigua el giro excepto el yaw alrededor de la normal (dirección libre)
-      const w = body.angvel()
+      // Amortigua el giro (excepto el yaw alrededor de la normal: dirección libre) RELATIVO a la velocidad
+      // angular que exige la curvatura del suelo. Sin esto, en una transición de radio R a velocidad v el
+      // amortiguador se opone a ω = v/R y la tabla va ~5–10° retrasada (roza el deck y pierde energía).
+      const wTarget = cfg.curvatureFF && grounded ? this.surfaceAngularVelocity(fwd) : v3()
+      const w = sub(body.angvel(), wTarget)
       const wPerp = sub(w, scl(target, dot(w, target)))
       tau = sub(tau, scl(wPerp, cA))
       body.addTorque(tau, true)
     }
     return { nContact, nNear, grounded, totalN }
+  }
+
+  /** Energía mecánica (J): cinética de traslación + rotación + potencial del COM. */
+  energy() {
+    const b = this.body
+    const v = b.linvel()
+    const q = b.rotation()
+    const wl = qrot({ x: -q.x, y: -q.y, z: -q.z, w: q.w }, b.angvel()) // ω en ejes locales (= principales aquí)
+    const I = b.principalInertia()
+    const rot = 0.5 * (I.x * wl.x * wl.x + I.y * wl.y * wl.y + I.z * wl.z * wl.z)
+    return 0.5 * b.mass() * dot(v, v) + rot + b.mass() * GRAVITY * b.worldCom().y
+  }
+
+  /**
+   * Velocidad angular que debe llevar la tabla para seguir la superficie: curvatura estimada con la normal
+   * media de los rayos delanteros frente a la de los traseros (rad/m) × velocidad de avance con signo.
+   */
+  surfaceAngularVelocity(fwd) {
+    let nF = v3()
+    let nR = v3()
+    let cF = 0
+    let cR = 0
+    for (const w of this.wheels) {
+      if (!w.contact) continue
+      if (w.front) {
+        nF = add(nF, w.normal)
+        cF++
+      } else {
+        nR = add(nR, w.normal)
+        cR++
+      }
+    }
+    if (!cF || !cR) return v3()
+    nF = norm(nF)
+    nR = norm(nR)
+    const axis = cross(nR, nF)
+    const s = len(axis)
+    if (s < 1e-6) return v3()
+    const curvature = Math.atan2(s, dot(nR, nF)) / this.cfg.wheelBase // rad/m
+    // Velocidad de avance de los PUNTOS DE CONTACTO (no del COM: el COM va por un radio R − h menor y
+    // usar su velocidad subestima ω en ~25 % con comY = 0.35 m → la tabla se retrasa y carga la rueda delantera).
+    let vFwd = 0
+    let n = 0
+    for (const w of this.wheels) {
+      if (!w.contact) continue
+      vFwd += w.vFwd
+      n++
+    }
+    vFwd /= n
+    void fwd
+    return scl(axis, (curvature * vFwd) / s)
   }
 }
 
@@ -564,11 +644,16 @@ function scenarioQuarterPipe(cfg, v0) {
   const R = 2.0
   const H = 1.6
   const world = makeWorld(cfg)
-  const qp = quarterPipeProfile(R, H)
+  const qp = quarterPipeProfile(R, H, cfg.qpSegments)
   const ground = addStaticTrimesh(world, extrudeProfile(qp.profile, 8))
   refreshQueries(world)
   const g = boardGeometry(cfg)
   const board = new Board(world, cfg, poseOnSurface(g, v3(0, 0, -4), v3(0, 1, 0), v3(0, 0, 1), v0))
+  const E0 = board.energy()
+  const com0 = board.body.worldCom().y
+  let maxComRise = 0
+  let energyAtReturn = null
+  let rollWorkAtReturn = null
   let maxH = 0
   let maxAngle = 0
   let fell = false
@@ -591,6 +676,7 @@ function scenarioQuarterPipe(cfg, v0) {
       const up = board.up
       const contact = sub(p, scl(up, g.rideHeight)) // punto bajo las ruedas (aprox.)
       maxH = Math.max(maxH, contact.y)
+      maxComRise = Math.max(maxComRise, board.body.worldCom().y - com0)
       maxAngle = Math.max(maxAngle, Math.acos(clamp(up.y, -1, 1)) / DEG)
       const nS = surfaceNormal(contact.z)
       const rel = tiltFrom(board, nS)
@@ -603,14 +689,21 @@ function scenarioQuarterPipe(cfg, v0) {
       }
       if (contact.y > H - 0.02) reachedTop = true
       if (deckTouching(world, board, ground)) deckScrape = true
-      if (returnSpeed === null && t > 1 && p.z < -2 && board.body.linvel().z < 0) returnSpeed = len(board.body.linvel())
+      if (returnSpeed === null && t > 1 && p.z < -2 && board.body.linvel().z < 0) {
+        returnSpeed = len(board.body.linvel())
+        energyAtReturn = board.energy()
+        rollWorkAtReturn = board.rollWork
+      }
     },
   })
   const hTheory = (v0 * v0) / (2 * GRAVITY)
+  const lost = energyAtReturn === null ? null : E0 - energyAtReturn
+  const KE0 = 0.5 * cfg.mass * v0 * v0
   const out = {
     v0,
+    subida_max_com_m: r3(maxComRise),
+    subida_com_sin_perdidas_m: r3(hTheory),
     altura_max_ruedas_m: r3(maxH),
-    altura_teorica_sin_perdidas_m: r3(Math.min(hTheory, H)),
     angulo_max_tabla_deg: r2(maxAngle),
     angulo_labio_deg: r2(qp.thetaMax / DEG),
     error_alineacion_rampa_max_deg: r2(maxRelTilt),
@@ -621,9 +714,16 @@ function scenarioQuarterPipe(cfg, v0) {
     roce_deck: deckScrape,
     v_regreso_mps: returnSpeed === null ? null : r3(returnSpeed),
     retencion_velocidad_pct: returnSpeed === null ? null : r2((100 * returnSpeed) / v0),
+    // Balance energético hasta volver al llano, en % de la energía cinética inicial:
+    // perdida = rodadura + resto; "resto" < 0 significa energía aportada por el par de alineación (asistencia).
+    energia_perdida_pct: lost === null ? null : r2((100 * lost) / KE0),
+    disipada_rodadura_pct: lost === null ? null : r2((100 * rollWorkAtReturn) / KE0),
+    resto_no_explicado_pct: lost === null ? null : r2((100 * (lost - rollWorkAtReturn)) / KE0),
     cae: fell,
   }
-  out.ok = !fell && returnSpeed !== null && returnSpeed > 0.85 * v0 && airborneSubsOnRamp === 0 && maxRelTilt < 10
+  // Válida para subir y bajar sin llegar al labio; por encima (≈ v0 ≥ 5 m/s con comY 0.35) las ruedas delanteras
+  // alcanzan el coping: eso es un stall/grind y debe gestionarlo GrindPhysics, no la suspensión.
+  out.ok = !fell && returnSpeed !== null && airborneSubsOnRamp === 0 && maxRelTilt < 5 && !deckScrape && Math.abs(out.resto_no_explicado_pct) < 5
   world.free()
   return out
 }
@@ -763,7 +863,8 @@ function scenarioCarve(cfg) {
 const SCENARIOS = {
   a: { name: 'a) llano trimesh: rodar y parar', run: scenarioFlat },
   b: { name: 'b) pendiente 10°', run: scenarioSlope },
-  c: { name: 'c) quarter pipe R=2.0 H=1.6', run: (cfg) => [4.5, 5.0, 5.5].map((v) => scenarioQuarterPipe(cfg, v)) },
+  c: { name: 'c) quarter pipe R=2.0 H=1.6', run: (cfg) => [3.5, 4.0, 4.5, 4.8].map((v) => scenarioQuarterPipe(cfg, v)) },
+  c2: { name: 'c2) quarter pipe hasta el labio (informativo: coping)', run: (cfg) => ({ ...scenarioQuarterPipe(cfg, 5.2), ok: true, nota: 'las ruedas delanteras alcanzan el labio: requiere lógica de stall/grind' }), informative: true },
   d: { name: 'd) ollie + aterrizaje', run: scenarioOllie },
   e: { name: 'e) carve (dirección de trucks)', run: scenarioCarve },
 }
@@ -774,6 +875,7 @@ const SCENARIOS = {
 function parseArgs(argv) {
   const cfg = { ...DEFAULTS }
   const opts = { scenarios: Object.keys(SCENARIOS), json: false, matrix: false, help: false }
+  const explicit = argv.some((a) => a.startsWith('--scenario='))
   for (const a of argv) {
     const m = /^--([^=]+)(?:=(.*))?$/.exec(a)
     if (!m) continue
@@ -785,13 +887,14 @@ function parseArgs(argv) {
     else if (key in cfg) cfg[key] = Number(val)
     else throw new Error(`Opción desconocida: --${key}`)
   }
+  if (opts.matrix && !explicit) opts.scenarios = opts.scenarios.filter((id) => !SCENARIOS[id].informative)
   return { cfg, opts }
 }
 
-function printBlock(name, result) {
+function printBlock(name, result, informative) {
   const list = Array.isArray(result) ? result : [result]
   for (const r of list) {
-    console.log(`\n${r.ok ? 'OK  ' : 'FALLA'} ${name}`)
+    console.log(`\n${informative ? 'INFO ' : r.ok ? 'OK   ' : 'FALLA'} ${name}`)
     for (const [k, v] of Object.entries(r)) if (k !== 'ok') console.log(`   ${k.padEnd(34)} ${v}`)
   }
 }
@@ -843,8 +946,8 @@ async function main() {
   console.log(`Rapier ${results.rapier} — prototipo de suspensión por rayos (STREETFLOW 3D)`)
   console.log('Parámetros:', JSON.stringify(cfg))
   console.log('Derivados :', JSON.stringify(derived))
-  for (const id of opts.scenarios) printBlock(SCENARIOS[id].name, results.scenarios[id])
-  const all = Object.values(results.scenarios).flat()
+  for (const id of opts.scenarios) printBlock(SCENARIOS[id].name, results.scenarios[id], SCENARIOS[id].informative)
+  const all = opts.scenarios.filter((id) => !SCENARIOS[id].informative).flatMap((id) => results.scenarios[id])
   console.log(`\nResumen: ${all.filter((r) => r.ok).length}/${all.length} pruebas OK`)
 }
 
