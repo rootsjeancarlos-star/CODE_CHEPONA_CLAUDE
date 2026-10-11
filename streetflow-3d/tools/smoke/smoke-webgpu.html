@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>STREETFLOW 3D · smoke WebGPURenderer</title>
+	<link rel="icon" href="data:,">
+	<style>
+		html, body { margin: 0; height: 100%; background: #000; color: #ddd; font: 12px/1.4 ui-monospace, monospace; overflow: hidden; }
+		#hud { position: fixed; left: 8px; top: 8px; white-space: pre; background: rgba(0, 0, 0, 0.55); padding: 6px 8px; pointer-events: none; z-index: 1; }
+		canvas { display: block; }
+	</style>
+</head>
+<body>
+	<!--
+		Prueba de humo de WebGPURenderer (three r186).
+		Parámetros de URL (todos opcionales):
+		  forceWebGL=1          fuerza el backend WebGL2
+		  post=none|bloom|bloom-fxaa|bloom-smaa|bloom-traa|ssao-bloom|gtao-traa-bloom   (por defecto bloom)
+		  aa=1                  MSAA (antialias: true)
+		  shadowType=pcf|vsm|basic   (por defecto pcf)
+		  csm=1                 usa CSMShadowNode en la luz direccional
+		  tonemap=aces|agx|neutral   (por defecto aces)
+		  instances=N           nº de instancias del InstancedMesh (por defecto 1500)
+		  frames=N              fotogramas medidos (por defecto 90)
+		  w=, h=                tamaño del canvas en px CSS (por defecto 960x540)
+		  lose=1                al final simula pérdida de dispositivo/contexto
+		  noSwizzleShim=1       NO aplica el parche de GPUTextureViewDescriptor.swizzle (reproduce el fallo en Chromium 141)
+		El resultado queda en window.__SMOKE__ (status: loading|running|ok|error|no-backend).
+	-->
+	<div id="hud">cargando…</div>
+	<script type="module" src="./smoke-webgpu.js"></script>
+</body>
+</html>
