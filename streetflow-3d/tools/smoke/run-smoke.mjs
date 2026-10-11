@@ -50,28 +50,38 @@ const browsers = {
 // Casos
 // ---------------------------------------------------------------------------
 
+// expect: resultado esperado en ESTE contenedor (sin GPU, Chromium 141 + SwiftShader).
+//   ok | device-lost | error | no-backend
+// En WebGPU, presentar en el <canvas> pierde el dispositivo (Chromium no puede crear la SharedImage
+// del swap chain sin GPU), así que WebGPU se prueba con offscreen=1 (render a RenderTarget + lectura).
 const cases = [
-	{ name: 'a-shell-default', browser: 'shell-default', query: {} },
-	{ name: 'b-shell-webgpu-flags', browser: 'shell-webgpu-flags', query: {} },
-	{ name: 'b-shell-webgpu-min', browser: 'shell-webgpu-min', query: {} },
-	{ name: 'b-shell-webgpu-min-forceWebGL', browser: 'shell-webgpu-min', query: { forceWebGL: 1 } },
-	{ name: 'b-shell-webgpu-min-noShim', browser: 'shell-webgpu-min', query: { noSwizzleShim: 1, frames: 10 } },
-	{ name: 'c-newheadless-default', browser: 'newheadless-default', query: {} },
-	{ name: 'c-newheadless-webgpu-min', browser: 'newheadless-webgpu-min', query: {} },
-	{ name: 'd-no-gpu', browser: 'no-gpu', query: {} }
+	{ name: 'a-shell-default', browser: 'shell-default', query: {}, expect: 'ok', expectBackend: 'WebGL2' },
+	{ name: 'b-shell-webgpu-flags-canvas', browser: 'shell-webgpu-flags', query: { frames: 10 }, expect: 'device-lost', expectBackend: 'WebGPU' },
+	{ name: 'b-shell-webgpu-flags-offscreen', browser: 'shell-webgpu-flags', query: { offscreen: 1 }, expect: 'ok', expectBackend: 'WebGPU' },
+	{ name: 'b-shell-webgpu-min-canvas', browser: 'shell-webgpu-min', query: { frames: 10 }, expect: 'device-lost', expectBackend: 'WebGPU' },
+	{ name: 'b-shell-webgpu-min-offscreen', browser: 'shell-webgpu-min', query: { offscreen: 1 }, expect: 'ok', expectBackend: 'WebGPU' },
+	{ name: 'b-shell-webgpu-min-offscreen-noShim', browser: 'shell-webgpu-min', query: { offscreen: 1, noSwizzleShim: 1, frames: 10 }, expect: 'error', expectBackend: 'WebGPU' },
+	{ name: 'b-shell-webgpu-min-forceWebGL-canvas', browser: 'shell-webgpu-min', query: { forceWebGL: 1 }, expect: 'ok', expectBackend: 'WebGL2' },
+	{ name: 'c-newheadless-default', browser: 'newheadless-default', query: {}, expect: 'ok', expectBackend: 'WebGL2' },
+	{ name: 'c-newheadless-webgpu-min-offscreen', browser: 'newheadless-webgpu-min', query: { offscreen: 1 }, expect: 'ok', expectBackend: 'WebGPU' },
+	{ name: 'd-no-gpu', browser: 'no-gpu', query: {}, expect: 'no-backend' }
 ];
 
 if ( ! QUICK ) {
 
-	const posts = [ 'none', 'bloom-fxaa', 'bloom-smaa', 'bloom-traa', 'ssao-bloom', 'gtao-traa-bloom' ];
-	for ( const [ tag, forceWebGL ] of [ [ 'webgpu', 0 ], [ 'webgl2', 1 ] ] ) {
+	// Matriz de post-procesado/sombras: ambos backends en offscreen para que sean comparables.
+	const posts = [ 'none', 'bloom', 'bloom-fxaa', 'bloom-smaa', 'bloom-traa', 'ssao-bloom', 'gtao-traa-bloom' ];
+	for ( const [ tag, forceWebGL, backend ] of [ [ 'webgpu', 0, 'WebGPU' ], [ 'webgl2', 1, 'WebGL2' ] ] ) {
 
-		for ( const post of posts ) cases.push( { name: `m-${ tag }-post-${ post }`, browser: 'shell-webgpu-min', query: { forceWebGL, post, frames: 40 } } );
-		cases.push( { name: `m-${ tag }-csm`, browser: 'shell-webgpu-min', query: { forceWebGL, csm: 1, frames: 40 } } );
-		cases.push( { name: `m-${ tag }-vsm`, browser: 'shell-webgpu-min', query: { forceWebGL, shadowType: 'vsm', frames: 40 } } );
-		cases.push( { name: `m-${ tag }-msaa`, browser: 'shell-webgpu-min', query: { forceWebGL, aa: 1, frames: 40 } } );
-		cases.push( { name: `m-${ tag }-agx`, browser: 'shell-webgpu-min', query: { forceWebGL, tonemap: 'agx', frames: 40 } } );
-		cases.push( { name: `m-${ tag }-lose`, browser: 'shell-webgpu-min', query: { forceWebGL, lose: 1, frames: 20 } } );
+		const base = { forceWebGL, offscreen: 1, frames: 30 };
+		const add = ( suffix, extra, expect = 'ok' ) => cases.push( { name: `m-${ tag }-${ suffix }`, browser: 'shell-webgpu-min', query: { ...base, ...extra }, expect, expectBackend: backend } );
+		for ( const post of posts ) add( 'post-' + post, { post } );
+		add( 'csm', { csm: 1 } );
+		add( 'vsm', { shadowType: 'vsm' } );
+		add( 'msaa', { aa: 1 } );
+		add( 'agx', { tonemap: 'agx' } );
+		add( 'noshadows', { skip: 'shadows' } );
+		add( 'lose', { lose: 1, frames: 10 } );
 
 	}
 
@@ -139,6 +149,7 @@ async function runCase( c ) {
 
 		const smoke = await page.evaluate( () => JSON.parse( JSON.stringify( window.__SMOKE__ ) ) );
 		Object.assign( result, smoke );
+		result.outcome = smoke.deviceLost && ! smoke.lossTest ? 'device-lost' : smoke.status;
 
 		await mkdir( OUT, { recursive: true } );
 		const shot = path.join( OUT, c.name + '.png' );
@@ -152,7 +163,7 @@ async function runCase( c ) {
 
 	} catch ( e ) {
 
-		result.status = 'runner-error';
+		result.status = result.outcome = 'runner-error';
 		result.runnerError = String( e && e.message || e ).split( '\n' )[ 0 ];
 
 	} finally {
@@ -162,6 +173,8 @@ async function runCase( c ) {
 	}
 
 	result.wallMs = Date.now() - t0;
+	result.expect = c.expect;
+	result.asExpected = result.outcome === c.expect && ( ! c.expectBackend || result.backend === c.expectBackend );
 	return result;
 
 }
@@ -171,8 +184,8 @@ function summaryLine( r ) {
 	const t = r.timings || {};
 	const med = ( s ) => ( s ? s.median : '-' );
 	return [
-		r.name.padEnd( 34 ),
-		String( r.status ).padEnd( 11 ),
+		( r.asExpected ? '  ' : '!!' ) + ' ' + r.name.padEnd( 40 ),
+		String( r.outcome ).padEnd( 11 ),
 		String( r.backend || '-' ).padEnd( 7 ),
 		`init ${ t.initMs ?? '-' }ms`.padEnd( 12 ),
 		`1er ${ t.firstFrameCpuMs ?? '-' }ms`.padEnd( 11 ),
@@ -206,7 +219,7 @@ async function main() {
 	try {
 
 		// Calentamiento: la primera carga hace que Vite transforme/optimice módulos
-		if ( server ) await runCase( { name: 'warmup', browser: 'shell-default', query: { frames: 5 } } );
+		if ( server ) await runCase( { name: 'warmup', browser: 'shell-default', query: { frames: 5 }, expect: 'ok' } );
 
 		for ( const c of selected ) {
 
@@ -226,11 +239,15 @@ async function main() {
 	await writeFile( path.join( OUT, 'results.json' ), JSON.stringify( { date: new Date().toISOString(), totalMs: Date.now() - tAll, results }, null, 2 ) );
 	console.log( `\n${ results.length } casos en ${ Math.round( ( Date.now() - tAll ) / 1000 ) } s. Resultados: ${ path.relative( ROOT, path.join( OUT, 'results.json' ) ) }` );
 
-	const failed = results.filter( ( r ) => r.status !== 'ok' && ! ( r.name.includes( 'no-gpu' ) && r.status === 'no-backend' ) );
-	if ( failed.length ) {
+	const unexpected = results.filter( ( r ) => ! r.asExpected );
+	if ( unexpected.length ) {
 
-		console.log( 'Casos con fallo: ' + failed.map( ( r ) => `${ r.name } (${ r.status })` ).join( ', ' ) );
+		console.log( 'Casos con resultado NO esperado: ' + unexpected.map( ( r ) => `${ r.name } (obtenido ${ r.outcome }/${ r.backend }, esperado ${ r.expect })` ).join( ', ' ) );
 		process.exitCode = 1;
+
+	} else {
+
+		console.log( 'Todos los casos dieron el resultado esperado para este entorno.' );
 
 	}
 

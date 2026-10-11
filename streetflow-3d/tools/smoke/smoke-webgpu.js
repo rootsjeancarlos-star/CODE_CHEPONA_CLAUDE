@@ -766,6 +766,8 @@ async function main() {
 
 	};
 
+	await gpuSync(); // vaciar la cola: los frames del bucle rAF pueden ir por delante de la GPU
+
 	for ( let i = 0; i < 20; i ++ ) {
 
 		await nextFrame();

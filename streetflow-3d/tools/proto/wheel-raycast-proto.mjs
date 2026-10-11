@@ -753,6 +753,7 @@ function scenarioOllie(cfg) {
   let settleT = null
   let calmSince = null
   let lastGrounded = true
+  let prevVy = 0
   const J = cfg.mass * Math.sqrt(2 * GRAVITY * cfg.ollieHeight)
   simulate(world, board, cfg, 4, {
     onFrame: (t, f) => {
@@ -776,7 +777,7 @@ function scenarioOllie(cfg) {
           if (grounded) {
             state = 'landed'
             landT = t
-            landVy = vy
+            landVy = prevVy // velocidad justo antes del subpaso de contacto
           }
         } else if (state === 'landed') {
           if (lastGrounded && !grounded) bounces++
@@ -791,6 +792,7 @@ function scenarioOllie(cfg) {
         }
       }
       lastGrounded = grounded
+      prevVy = vy
     },
   })
   const out = {
