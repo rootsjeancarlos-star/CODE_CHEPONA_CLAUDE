@@ -6,6 +6,9 @@ import { BalanceSystem } from '../../src/gameplay/BalanceSystem.js'
 import { LandingSystem } from '../../src/gameplay/LandingSystem.js'
 import { RespawnSystem } from '../../src/gameplay/RespawnSystem.js'
 import { createEmptyIntent } from '../../src/input/InputManager.js'
+import { EventBus } from '../../src/core/EventBus.js'
+import { TrickSystem } from '../../src/gameplay/TrickSystem.js'
+import { ComboSystem } from '../../src/gameplay/ComboSystem.js'
 
 /** Registro de aristas mínimo conforme al contrato (búsqueda lineal). */
 export class FakeSpots {
@@ -34,9 +37,10 @@ export class FakeSpots {
   }
 }
 
-export async function makePlayerScene({ mode = 'arcade' } = {}) {
+export async function makePlayerScene({ mode = 'arcade', realTricks = false } = {}) {
   const sc = await makeScene()
-  const bus = { events: [], emit(type, payload) { this.events.push({ type, payload }) } }
+  const ebus = new EventBus()
+  const bus = { events: [], emit(type, payload) { this.events.push({ type, payload }); ebus.emit(type, payload) }, on: (t, h) => ebus.on(t, h) }
   sc.sb.bus = bus
   const spots = new FakeSpots()
   const balance = new BalanceSystem()
@@ -48,7 +52,10 @@ export async function makePlayerScene({ mode = 'arcade' } = {}) {
     getBounds: () => ({ min: { x: -100, y: -1, z: -100 }, max: { x: 100, y: 10, z: 100 } }),
   }
   const save = { data: { markers: {} }, update(fn) { fn(this.data) } }
-  const tricks = { calls: [], handleIntent() {}, onLanding: (r) => tricks.calls.push(['land', r]), onBail: (r) => tricks.calls.push(['bail', r]), reset() {} }
+  const tricks = realTricks
+    ? new TrickSystem({ bus, board })
+    : { calls: [], handleIntent() {}, onLanding: (r) => tricks.calls.push(['land', r]), onBail: (r) => tricks.calls.push(['bail', r]), reset() {}, fixedUpdate() {} }
+  const combo = new ComboSystem({ bus })
   const player = new PlayerController({
     bus,
     physics: sc.physics,
@@ -68,8 +75,10 @@ export async function makePlayerScene({ mode = 'arcade' } = {}) {
       player.fixedUpdate(1 / 60, it)
       sc.physics.step(1 / 60)
       player.postPhysics(1 / 60)
+      tricks.fixedUpdate?.(1 / 60, player.getTelemetry(), player.state)
+      combo.fixedUpdate(1 / 60, player.getTelemetry(), player.state)
       player.respawn.fixedUpdate(1 / 60, player.getTelemetry(), it, player)
     }
   }
-  return { ...sc, bus, spots, player, step, tel: player.getTelemetry(), save }
+  return { ...sc, bus, spots, player, step, tel: player.getTelemetry(), save, tricks, combo }
 }
