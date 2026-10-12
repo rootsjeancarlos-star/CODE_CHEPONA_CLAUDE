@@ -37,13 +37,45 @@ export class PhysicsWorld {
     this._collisionHandlers = new Set()
     this._fixedBody = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed())
     this.stepCount = 0
+    /** Subpasos de Rapier por paso lógico (1/60 → 2 × 1/120): mejora la estabilidad de la suspensión. */
+    this.substeps = PHYSICS.substeps ?? 2
+    /** @type {Set<(subDt:number, index:number)=>void>} se ejecutan antes de cada subpaso */
+    this._preSubstep = new Set()
   }
 
-  /** Avanza un paso fijo. */
+  /** Registra una función que se ejecuta antes de cada subpaso (p.ej. fuerzas de las ruedas). */
+  addPreSubstep(fn) {
+    this._preSubstep.add(fn)
+    return () => this._preSubstep.delete(fn)
+  }
+
+  /** Avanza un paso fijo (dividido en `substeps` subpasos de Rapier). */
   step(dt = PHYSICS.fixedDt) {
-    this.world.timestep = dt
-    this.world.step(this.eventQueue)
+    const n = Math.max(1, this.substeps | 0)
+    const sub = dt / n
+    this.world.timestep = sub
+    for (let i = 0; i < n; i++) {
+      for (const fn of this._preSubstep) fn(sub, i)
+      this.world.step(this.eventQueue)
+      this._drainEvents()
+    }
     this.stepCount++
+  }
+
+  /**
+   * Actualiza las estructuras de consulta (BVH) sin avanzar la simulación: tras crear o mover colliders,
+   * los rayos no los ven hasta el siguiente paso (verificado en tools/proto/wheel-raycast-proto.mjs).
+   */
+  refreshQueries() {
+    const dt = this.world.timestep
+    this.world.timestep = 0
+    this.world.step(this.eventQueue)
+    this.world.timestep = dt
+    this.eventQueue.drainCollisionEvents(() => {})
+    this.eventQueue.drainContactForceEvents(() => {})
+  }
+
+  _drainEvents() {
     if (this._collisionHandlers.size > 0) {
       this.eventQueue.drainCollisionEvents((h1, h2, started) => {
         const c1 = this.world.getCollider(h1)

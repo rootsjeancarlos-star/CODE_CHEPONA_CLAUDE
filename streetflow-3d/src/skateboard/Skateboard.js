@@ -44,11 +44,32 @@ export class Skateboard {
   }
 
   updateVisual(frameDt, alpha) {
+    const t = this.physics.getTelemetry()
+    if (this.physics.detached && this.physics.getLooseBoardTransform(this._pos, this._quat)) {
+      // Tabla suelta tras una caída o al caminar: sigue a su propio cuerpo dinámico (sin interpolar).
+      this.visual.object3d.position.copy(this._pos)
+      this.visual.object3d.quaternion.copy(this._quat)
+      this.visual.update(frameDt, this._looseState(t))
+      return
+    }
     this.physics.getInterpolatedTransform(alpha, this._pos, this._quat)
     this.visual.object3d.position.copy(this._pos)
     this.visual.object3d.quaternion.copy(this._quat)
-    const t = this.physics.getTelemetry()
     this.visual.update(frameDt, t)
+  }
+
+  /** Estado visual de la tabla suelta: sin flip relativo ni dirección. */
+  _looseState(t) {
+    const s = this._loose || (this._loose = { speed: 0, forwardSpeed: 0, steerAngle: 0, lean: 0, wheelContacts: [true, true, true, true], grounded: true, boardRelative: new THREE.Quaternion() })
+    const lb = this.physics.looseBoard
+    if (lb) {
+      const v = lb.linvel()
+      s.speed = Math.hypot(v.x, v.y, v.z)
+      this._fwdTmp = this._fwdTmp || new THREE.Vector3()
+      this._fwdTmp.set(0, 0, 1).applyQuaternion(this._quat)
+      s.forwardSpeed = v.x * this._fwdTmp.x + v.y * this._fwdTmp.y + v.z * this._fwdTmp.z
+    }
+    return s
   }
 
   applyCustomization(c) {

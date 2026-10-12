@@ -29,11 +29,13 @@ const G = {
 
 /** Empaqueta pertenencia y filtro en el formato de InteractionGroups de Rapier. */
 export function interactionGroups(membership, filter) {
-  return ((membership & 0xffff) << 16) | (filter & 0xffff)
+  return (((membership & 0xffff) << 16) | (filter & 0xffff)) >>> 0
 }
 
 export const PHYSICS = deepFreeze({
   fixedDt: 1 / 60,
+  /** Subpasos de Rapier por paso lógico (suspensión más estable; ver tools/proto/wheel-raycast-proto.mjs) */
+  substeps: 2,
   maxStepsPerFrame: 5,
   maxFrameDelta: 0.25,
   gravity: { x: 0, y: -9.81, z: 0 },
