@@ -153,7 +153,9 @@ export class InputManager {
     const sens = (this.settings.mouseSensitivity ?? 1) * 0.0025
     this.intent.look.x += this._look.x * sens
     this.intent.look.y += this._look.y * sens * (this.settings.invertY ? -1 : 1)
-    this._zoom += this.mouse.takeWheel()
+    const w = this.mouse.takeWheel()
+    this._zoom += w
+    this._zoomCam = (this._zoomCam || 0) + w
 
     // --- Mando ---
     const gp = this.gamepad
@@ -267,6 +269,13 @@ export class InputManager {
     i.device = this.device
     for (const k of Object.keys(e)) e[k] = typeof e[k] === 'boolean' ? false : null
     return i
+  }
+
+  /** La cámara consume el zoom acumulado de la rueda. */
+  takeZoom() {
+    const z = this._zoomCam || 0
+    this._zoomCam = 0
+    return z
   }
 
   /** La cámara consume el delta de mirada acumulado (independiente del paso fijo). */

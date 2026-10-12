@@ -234,6 +234,7 @@ export class Game {
     // 10) Nivel de fondo del menú
     this._progress('world', 0, 'Construyendo skatepark')
     await this.world.loadLevel('skatepark', { onProgress: (f, label) => this._progress('world', f, label || 'Construyendo skatepark') })
+    this.lighting.setLampPositions(this.world.getLampPositions?.() || [])
     this._spawnPlayer()
     this.cameraController.setMode('menu')
     this._progress('world', 1, 'Skatepark listo')
@@ -357,7 +358,7 @@ export class Game {
     }
 
     this.world.update(frameDt, camera.position)
-    this.lighting.update(frameDt, camera.position)
+    this.lighting.update(frameDt, st === S.MENU ? camera.position : this.player.getCameraTarget(alpha).position)
     const tel = this.player.getTelemetry()
     this.audio.update(frameDt, tel, camera, st)
     this.ui.update(frameDt, {
@@ -401,6 +402,7 @@ export class Game {
         return
       }
       this.ui.loading.hide()
+      this.lighting.setLampPositions(this.world.getLampPositions?.() || [])
     }
     this._startPlaying()
   }
