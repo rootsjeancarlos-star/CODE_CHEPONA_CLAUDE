@@ -1,0 +1,103 @@
+/* Estilos base. El paquete de UI (WP-UI) amplía menus.css y hud.css. */
+:root {
+  --sf-bg: #0a0d12;
+  --sf-panel: rgba(14, 18, 26, 0.72);
+  --sf-panel-strong: rgba(10, 13, 19, 0.9);
+  --sf-border: rgba(255, 255, 255, 0.12);
+  --sf-text: #f4f6f8;
+  --sf-text-dim: #a9b2bf;
+  --sf-lime: #b6ff3b;
+  --sf-cyan: #25d9ff;
+  --sf-danger: #ff4d5e;
+  --sf-radius: 14px;
+  --sf-font: 'Barlow', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --sf-font-display: 'Barlow Condensed', 'Arial Narrow', 'Segoe UI', system-ui, sans-serif;
+  color-scheme: dark;
+}
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--sf-bg);
+  color: var(--sf-text);
+  font-family: var(--sf-font);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+.sf-app {
+  position: fixed;
+  inset: 0;
+}
+.sf-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  outline: none;
+  touch-action: none;
+}
+.sf-ui-root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.sf-ui-root > * {
+  pointer-events: auto;
+}
+.sf-debug {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  font: 11px/1.45 ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  background: rgba(0, 0, 0, 0.62);
+  color: #c8f7ff;
+  border-radius: 8px;
+  pointer-events: none !important;
+  white-space: pre;
+  z-index: 50;
+}
+.sf-fatal {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  text-align: center;
+  background: var(--sf-bg);
+  padding: 24px;
+  z-index: 100;
+}
+.sf-fatal h1 {
+  font-family: var(--sf-font-display);
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+.sf-fatal p {
+  max-width: 560px;
+  color: var(--sf-text-dim);
+  margin: 0 auto;
+}
+.sf-fatal button {
+  justify-self: center;
+  padding: 10px 22px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--sf-lime);
+  color: #0a0d12;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sf-noscript {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-content: center;
+}
