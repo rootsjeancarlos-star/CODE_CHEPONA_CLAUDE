@@ -162,18 +162,18 @@ export class InputManager {
     if (gp.poll(frameDt)) this._setDevice('gamepad')
     if (gp.connected) {
       const P = gp.pressed
+      // Mapeo documentado en InputBindings.GAMEPAD_LAYOUT
       if (P.has(PAD.A)) e.push = true
       if (P.has(PAD.X)) e.grind = true
       if (P.has(PAD.Y)) e.manual = true
-      if (P.has(PAD.L3)) e.q = true
+      if (P.has(PAD.L3)) e.interact = true
       if (P.has(PAD.R3)) this.bus?.emit('input:action', { action: 'camera' })
       if (P.has(PAD.START)) this.bus?.emit('input:action', { action: 'pause' })
       if (P.has(PAD.BACK)) this.bus?.emit('input:action', { action: 'replay' })
-      if (P.has(PAD.UP)) e.manual = true
-      if (P.has(PAD.DOWN)) e.manual = true
-      // D-pad como flicks alternativos
-      if (P.has(PAD.LEFT)) this._emitFlick('L')
-      if (P.has(PAD.RIGHT)) this._emitFlick('R')
+      if (P.has(PAD.UP)) e.saveMarker = true
+      if (P.has(PAD.DOWN)) e.loadMarker = true
+      if (P.has(PAD.LEFT)) e.q = true
+      if (P.has(PAD.RIGHT)) e.reset = true
       const g = gp.gestureOut
       if (g.pop) {
         e.pop = true
@@ -194,7 +194,7 @@ export class InputManager {
     this._pendingArrow = null
     if (!dir) return
     this.edges.flick = dir
-    this.edges.flickModifier = this.keyboard.isHeld('modifier') || this.gamepad.isHeld(PAD.LB) || this.gamepad.isHeld(PAD.RB)
+    this.edges.flickModifier = this.keyboard.isHeld('modifier') || this.gamepad.lt > 0.5
   }
 
   /** Navegación de menús con el mando (con repetición al mantener). */
@@ -235,11 +235,12 @@ export class InputManager {
     i.spin = clamp(kSteer + (padOn ? gp.left.x : 0) + lbrb)
     i.throttle = Math.max(kb.isHeld('push') ? 1 : 0, padOn && gp.isHeld(PAD.A) ? 1 : 0)
     i.brake = Math.max(kb.isHeld('brake') ? 1 : 0, padOn && gp.isHeld(PAD.B) ? 1 : 0)
-    i.modifier = kb.isHeld('modifier') || (padOn && (gp.isHeld(PAD.LB) || gp.isHeld(PAD.RB)))
+    i.modifier = kb.isHeld('modifier') || (padOn && gp.lt > 0.5)
     i.crouch = kb.isHeld('crouch') || (padOn && gp.gestureOut.crouch)
     i.grind = kb.isHeld('grind') || (padOn && gp.isHeld(PAD.X))
-    const mUp = kb.isHeld('flickUp') || (padOn && (gp.isHeld(PAD.UP) || gp.isHeld(PAD.Y)))
-    const mDown = kb.isHeld('flickDown') || (padOn && gp.isHeld(PAD.DOWN))
+    const padY = padOn && gp.isHeld(PAD.Y)
+    const mUp = kb.isHeld('flickUp') || (padY && gp.left.y <= 0.5)
+    const mDown = kb.isHeld('flickDown') || (padY && gp.left.y > 0.5)
     i.manual = (mUp ? 1 : 0) - (mDown ? 1 : 0)
     // flancos
     i.pushPressed = e.push

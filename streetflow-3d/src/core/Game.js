@@ -432,6 +432,7 @@ export class Game {
 
   resume() {
     if (!this.state.is(S.PAUSED)) return
+    this.input.releaseAll() // descarta flancos acumulados en los menús (cruceta, botones)
     this.state.set(S.PLAYING)
     this.ui.showScreen(null)
     this.loop.resetTiming()
